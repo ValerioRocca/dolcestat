@@ -2,7 +2,7 @@
 
 *Sweet statistics* — a Python library implementing core machine learning algorithms from scratch.
 
-Educational purpose: every algorithm is built from first principles using NumPy, so the mathematics stays visible. Read the source alongside a textbook to see how equations become code.
+This repository is designed for **educational use**. Every algorithm is implemented from first principles using only NumPy, with the goal of making the underlying mathematics transparent. It is a good companion to a course or textbook on statistical learning, optimization, or machine learning: read the source alongside the theory to see how the equations translate into code.
 
 ## Installation
 
