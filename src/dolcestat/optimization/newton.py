@@ -1,17 +1,25 @@
 import numpy as np
 
 from .base import BaseOptimizer
-from .input_validation import validate_if_fitting_without_target
+from .input_validation import (
+    validate_if_fitting_without_target,
+    validate_if_training_not_loaded,
+)
 
 
 class NewtonMethod(BaseOptimizer):
 
-    def __init__(self, data, n_iters=100, tol=1e-6, loss_function=None):
-        """Vanilla Newton method with explicit matrix inversion."""
+    def __init__(self, data=None, n_iters=100, tol=1e-6, loss_function=None):
+        """Vanilla Newton method with explicit matrix inversion.
+
+        ``data`` is optional: when omitted, build a data-less optimizer and
+        supply data later via ``load_training``.
+        """
         super().__init__(data, n_iters, tol, loss_function)
 
     def fit(self):
 
+        validate_if_training_not_loaded(self.is_training_loaded)
         validate_if_fitting_without_target(self.can_train)
 
         for iter in range(self.n_iters):

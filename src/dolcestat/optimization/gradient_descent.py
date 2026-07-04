@@ -8,6 +8,7 @@ from .input_validation import (
     validate_batch_fraction,
     validate_flavor,
     validate_if_fitting_without_target,
+    validate_if_training_not_loaded,
     validate_momentum_rate,
     validate_momentum_type,
 )
@@ -18,7 +19,7 @@ class GradientDescent(BaseOptimizer):
 
     def __init__(
         self,
-        data,
+        data=None,
         alpha=0.01,
         n_iters=1000,
         tol=1e-6,
@@ -32,8 +33,10 @@ class GradientDescent(BaseOptimizer):
 
         Parameters
         ----------
-        data : DolceSet
+        data : DolceSet, optional
             Holds X (and y when training). A bias column is appended internally.
+            When omitted, build a data-less optimizer and supply data later via
+            ``load_training`` (e.g. through a model wrapper).
         alpha : float, default 0.01
             Learning rate; must be in (0, 1).
         n_iters : int, default 1000
@@ -61,21 +64,27 @@ class GradientDescent(BaseOptimizer):
         validate_momentum_type(momentum_type)
         validate_momentum_rate(momentum_rate)
 
-        # 2. Shared validation and attribute setup
-        super().__init__(data, n_iters, tol, loss_function)
-
-        # 3. Assign GD-specific attributes
+        # 2. Assign GD-specific attributes before super().__init__, since that
+        #    may call load_training (overridden below), which reads them.
         self.alpha = alpha
         self.flavor = flavor
         self.batch_fraction = batch_fraction
         self.momentum_type = momentum_type
         self.momentum_rate = momentum_rate
+        self.mini_batch_size = None
 
-        # Mini-batch size as a row count, derived from the fraction of rows.
-        self.mini_batch_size = max(1, math.ceil(batch_fraction * self.n_samples))
+        # 3. Shared validation and attribute setup. When data is provided this
+        #    loads it and derives the mini-batch size via load_training.
+        super().__init__(data, n_iters, tol, loss_function)
+
+    def load_training(self, data):
+        # Derive the mini-batch size once the row count is known.
+        super().load_training(data)
+        self.mini_batch_size = max(1, math.ceil(self.batch_fraction * self.n_samples))
 
     def fit(self):
 
+        validate_if_training_not_loaded(self.is_training_loaded)
         validate_if_fitting_without_target(self.can_train)
 
         for iter in range(self.n_iters):

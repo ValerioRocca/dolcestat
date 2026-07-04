@@ -4,7 +4,7 @@ import seaborn as sns
 from .base import BaseOptimizer
 
 
-class OptimizerVisualizer:
+class OptimizerAnalyzer:
     def __init__(self, optimizers, labels=None):
         # Accept either a single BaseOptimizer or an iterable of them.
         if isinstance(optimizers, BaseOptimizer):

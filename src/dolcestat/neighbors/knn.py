@@ -1,5 +1,7 @@
 import numpy as np
 
+from dolcestat.metrics import KNNClassificationAnalyzer, KNNRegressionAnalyzer
+
 from .base import BaseNeighbors
 
 
@@ -15,7 +17,6 @@ class KNNClassifier(BaseNeighbors):
         metric="euclidean",
         minkowski_p=None,
         weights="uniform",
-        verbose_output=False,
     ):
 
         # 1. Compute distances matrix
@@ -46,10 +47,8 @@ class KNNClassifier(BaseNeighbors):
         row_sums = weighted_votes.sum(axis=1, keepdims=True)
         pred_proba = weighted_votes / row_sums
 
-        # 7. Return computed values
-        if verbose_output:
-            return pred_y, pred_proba
-        return pred_y
+        # 7. Return an analyzer carrying the predictions and class probabilities
+        return KNNClassificationAnalyzer(unlabeled_data.y, pred_y, proba=pred_proba)
 
 
 class KNNRegressor(BaseNeighbors):
@@ -64,7 +63,6 @@ class KNNRegressor(BaseNeighbors):
         metric="euclidean",
         minkowski_p=None,
         weights="uniform",
-        verbose_output=False,
     ):
 
         # 1. Compute distances matrix
@@ -84,7 +82,7 @@ class KNNRegressor(BaseNeighbors):
         # 5. Compute weighted average: sum(y * w) / sum(w)
         pred_y = (knn_y * weight_matrix).sum(axis=1) / weight_matrix.sum(axis=1)
 
-        # 6. Return computed values
-        if verbose_output:
-            return pred_y, weight_matrix
-        return pred_y
+        # 6. Return an analyzer carrying the predictions and neighbour weights
+        return KNNRegressionAnalyzer(
+            unlabeled_data.y, pred_y, weight_matrix=weight_matrix
+        )
