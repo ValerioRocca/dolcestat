@@ -103,9 +103,10 @@ class DolceSet:
         self._is_column_in_features(column_name)
         # 2. One-hot-encode
         self.df_as_polars = self.df_as_polars.to_dummies(column_name, drop_first=True)
-        # 3. Update X and features names
-        self.X = self.df_as_polars.to_numpy()
-        self.features = self.df_as_polars.columns
+        # 3. Refresh features/X from the encoded columns, keeping the target out
+        #    of the feature matrix (the same invariant scale() maintains).
+        self.features = [c for c in self.df_as_polars.columns if c != self.target]
+        self.X = self.df_as_polars.select(pl.col(self.features)).to_numpy()
 
     def scale(self, scaling_strategy, column_name=None, **kwargs):
         """Scale one or more columns.

@@ -81,6 +81,14 @@ def validate_if_fitting_without_target(can_train):
         )
 
 
+def validate_if_training_not_loaded(is_training_loaded):
+    if not is_training_loaded:
+        raise ValueError(
+            "Cannot fit: no training data has been loaded. Pass data at "
+            "construction or call load_training(data) before fit()."
+        )
+
+
 def validate_momentum_type(momentum_type):
     valid = {None, "polyak", "nesterov"}
     if momentum_type not in valid:

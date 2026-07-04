@@ -16,8 +16,14 @@ pip install -e .
 
 ## Modules & Notebooks
 
+New here? Start with the [quickstart](notebooks/00_quickstart.ipynb), then follow
+the notebooks in order — they build a full **preprocess → fit → evaluate** pipeline.
+
 | Module | Notebooks |
 |---|---|
-| `dolcestat.preprocessing` | — |
-| `dolcestat.optimization` | [gradient_descent_sandbox](notebooks/gradient_descent_sandbox.ipynb) · [gradient_descent_sklearn](notebooks/gradient_descent_sklearn.ipynb) |
-| `dolcestat.neighbors` | [knn_sklearn](notebooks/knn_sklearn.ipynb) |
+| _start here_ | [00 · quickstart](notebooks/00_quickstart.ipynb) |
+| `dolcestat.preprocessing` | [01 · preprocessing](notebooks/01_preprocessing.ipynb) |
+| `dolcestat.linear_models` | [02 · linear regression](notebooks/02_linear_regression.ipynb) · [03 · logistic regression](notebooks/03_logistic_regression.ipynb) |
+| `dolcestat.optimization` | [04 · optimization](notebooks/04_optimization.ipynb) |
+| `dolcestat.neighbors` | [05 · k-nearest neighbours](notebooks/05_knn.ipynb) |
+| `dolcestat.metrics` | [06 · metrics](notebooks/06_metrics.ipynb) |

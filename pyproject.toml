@@ -8,11 +8,14 @@ version = "0.1.0"
 requires-python = ">=3.10"
 dependencies = [
     "numpy",
-    "pandas",
+    "polars",
+    "matplotlib",
+    "seaborn",
 ]
 
 [project.optional-dependencies]
 dev = ["black", "isort"]
+notebooks = ["scikit-learn"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

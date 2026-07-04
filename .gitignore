@@ -34,3 +34,6 @@ htmlcov/
 # IDEs
 .vscode/
 .idea/
+
+# Other
+TODO.md
