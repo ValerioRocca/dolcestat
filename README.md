@@ -27,3 +27,4 @@ the notebooks in order — they build a full **preprocess → fit → evaluate**
 | `dolcestat.optimization` | [04 · optimization](notebooks/04_optimization.ipynb) |
 | `dolcestat.neighbors` | [05 · k-nearest neighbours](notebooks/05_knn.ipynb) |
 | `dolcestat.metrics` | [06 · metrics](notebooks/06_metrics.ipynb) |
+| `dolcestat.trees` | [07 · decision trees & random forests](notebooks/07_trees.ipynb) |
