@@ -4,9 +4,10 @@ from abc import ABC, abstractmethod
 
 import numpy as np
 
-from dolcestat.neural_networks.losses import BinaryCrossEntropy, Loss
-from dolcestat.neural_networks.samplers import MiniBatchIteratingSampler, Sampler
-from dolcestat.optimization.base import BaseOptimizer
+from dolcestat.core.losses import Loss
+from dolcestat.core.optimizer import Optimizer
+from dolcestat.core.samplers import Sampler
+from dolcestat.core.trainer import Trainer
 from dolcestat.optimization.gradient_descent import GradientDescent
 from dolcestat.preprocessing.core import DolceSet
 
@@ -107,70 +108,50 @@ class Sequential(NeuralNetwork):
     def fit(
         self,
         data: DolceSet,
-        loss: Loss = BinaryCrossEntropy(),
+        loss: Loss,
         n_epochs: int = 100,
-        sampler: Sampler = MiniBatchIteratingSampler(),
-        optimizer: BaseOptimizer = GradientDescent(),
-    ) -> None:
+        sampler: Sampler = None,
+        optimizer: Optimizer = None,
+        **run_kwargs,
+    ) -> "Sequential":
         """
-        Trains the network on ``data`` via mini-batch gradient descent.
+        Trains the network on ``data``.
+
+        This is a convenience wrapper: it assembles a Trainer and runs it. The
+        loop itself lives in Trainer, so a network, a GLM and a perceptron all
+        train through exactly one implementation. Build the Trainer yourself
+        when you want to drive the loop directly.
 
         Args:
             data: training data (DolceSet)
-            loss: loss function used to compare predictions and targets
+            loss: loss function used to compare predictions and targets.
+                Required: a general network has no sensible default, and
+                defaulting to a classification loss would silently do the wrong
+                thing for regression.
             n_epochs: number of passes over the (sampled) data
-            sampler: strategy used to split data into (mini-)batches each epoch
-            optimizer: optimizer used to update the layers' parameters
+            sampler: strategy used to split data into (mini-)batches each epoch.
+                Defaults to MiniBatchIteratingSampler().
+            optimizer: optimizer used to update the layers' parameters.
+                Defaults to GradientDescent().
+            **run_kwargs: forwarded to Trainer.run (tol, max_steps,
+                track_full_loss)
+
+        Returns:
+            self, with the run recorded in ``self.history``
         """
 
-        for epoch in range(n_epochs):
-            # F1. Extract one or more (mini-)batches depending on the chosen strategy
-            batched_data = sampler.sample(data)
+        # F1. Resolve the strategy defaults here rather than in the signature.
+        #     Default arguments are evaluated once, at import, so every network
+        #     trained with defaults would share one optimizer instance — and,
+        #     once optimizers carry momentum buffers, leak momentum between
+        #     unrelated networks.
+        if optimizer is None:
+            optimizer = GradientDescent()
 
-            for batch in batched_data:
-                X_batch = batch.X
-                y_batch = batch.y
-
-                # F2. Zero the gradients (from previous iterations). Gradients for this
-                #     epoch will be computed during step F6.
-                for p in self.get_parameters():
-                    p.zero_grad()
-
-                # F3. Forward pass: compute the model's predictions and caches, for
-                #     each layer, its input (used to compute dL/dW) and (if applicable)
-                #     sigmoid output (used to compute dz(l+1)/da(l) in the backward step).
-                logits = self.forward(X_batch)
-
-                # F4. Based on the predictions, compute the loss and caches true and
-                #     predicted values for the backward step.
-                loss_value = loss.forward(logits, y_batch)
-
-                # F5. Loss backward pass: compute dL/da(l) - with l output layer -
-                #     using the true/predicted values cached in F4.
-                grad = loss.backward()
-
-                # F6. Model backward pass: for each layer, this function does two things:
-                #     1. Propagate the gradient back to the previous layer via chain rule:
-                #        dL/dz(l) = dL/dz(l+1) dz(l+1)/da(l) da(l)/dz(l) where:
-                #        - dL/dz(l+1) is just dL/dz passed from the layer above.
-                #        - dz(l+1)/da(l) is the matrix [weights(l+1), bias(l+1)]
-                #        - da(l)/dz(l) is the derivative of the activation function (this
-                #          is why we cached the sigmoid output in F3).
-                #        Note. The output layer of course does not have a next layer.
-                #        For the output layer, dL/dz(l) = dL/da(l) da(l)/dz(l), where
-                #        dL/da(l) is computed in F5.
-                #     2. Compute the gradients of the layer's parameters (weights and bias)
-                #        again via chain rule: dL/dW(l) = dL/dz(l) dz(l)/dW(l) where:
-                #        - dL/dz(l) is computed in the previous step.
-                #        - dz(l)/dW(l) is just the input to the layer (this is why we cached
-                #          it in F3).
-                #        The gradients are stored in layer's parameters object, enabling an
-                #        the optimizer to simply retrieve themin the next step (F7).
-                self.backward(grad)
-
-                # F7. Update the models's parameters via chosen optimizer (default is
-                #     mini-batch Nesterov gradient descent).
-                optimizer.step(self.get_parameters())
+        # F2. Hand the pieces to the loop and record the run.
+        trainer = Trainer(model=self, loss=loss, optimizer=optimizer, sampler=sampler)
+        self.history = trainer.run(data, n_epochs=n_epochs, **run_kwargs)
+        return self
 
     def predict(self, X: np.ndarray) -> np.ndarray:
         """

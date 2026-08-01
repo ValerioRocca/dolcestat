@@ -1,7 +1,9 @@
+"""Stores the prediction analyzers that expose evaluation metrics."""
+
 import numpy as np
 import seaborn as sns
 
-from dolcestat.optimization.loss_and_activation import compute_bce_loss
+from dolcestat.core.losses import BinaryCrossEntropy
 
 
 class PredictionAnalyzer:
@@ -177,7 +179,13 @@ class ClassificationAnalyzer(PredictionAnalyzer):
         return self._safe_divide(2 * p * r, p + r)
 
     def bce(self):
-        return compute_bce_loss(np.asarray(self.y_true, dtype=float), self.y_fit)
+        # training=False: this is a pure metric, so the loss must not leave a
+        # backward-pass cache behind.
+        return BinaryCrossEntropy().forward(
+            np.asarray(self.y_fit, dtype=float),
+            np.asarray(self.y_true, dtype=float),
+            training=False,
+        )
 
     def _roc_points(self):
         # (FPR, TPR) pairs swept over thresholds, shared by the ROC plot and AUC.

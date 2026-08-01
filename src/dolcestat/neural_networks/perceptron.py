@@ -1,91 +1,126 @@
+"""Stores Rosenblatt's perceptron."""
+
 import numpy as np
 
-from dolcestat.optimization.base import BaseOptimizer
-from dolcestat.optimization.input_validation import (
-    validate_alpha,
-    validate_if_fitting_without_target,
-    validate_if_training_not_loaded,
-)
+from dolcestat.core.activations import Step
+from dolcestat.core.losses import PerceptronCriterion
+from dolcestat.core.parameters import ZeroParametersInitializer
+from dolcestat.core.samplers import MiniBatchSampler
+from dolcestat.core.trainer import Trainer
+from dolcestat.metrics import ClassificationAnalyzer
+from dolcestat.neural_networks.layers import DenseLayer
+from dolcestat.neural_networks.networks import Sequential
+from dolcestat.optimization.gradient_descent import GradientDescent
+from dolcestat.preprocessing.core import DolceSet
 
 
-class RosenblattPerceptron(BaseOptimizer):
+class RosenblattPerceptron:
     """Rosenblatt's single-layer perceptron for binary classification.
 
-    A linear threshold unit trained with the classic perceptron learning rule.
-    The prediction is a Heaviside step of the weighted input and the weights are
-    updated online, one random sample at a time::
+    A linear threshold unit trained with the classic perceptron learning rule::
 
-        y_pred = 1 if w . x > 0 else 0
+        y_pred = 1 if w . x + b > 0 else 0
         w      = w + alpha * (y - y_pred) * x
 
-    The bias term is folded into the weights: ``BaseOptimizer.load_training``
-    appends a constant column of ones to ``X``, so the last weight is the bias.
+    The point of this class is that **none of that is implemented here**. A
+    perceptron is a one-layer network with a ``Step`` activation, and its
+    learning rule is plain gradient descent over one sample at a time against
+    ``PerceptronCriterion``. So it is assembled from the same four pieces
+    everything else in the library is assembled from — layer, loss, sampler,
+    optimizer — and the 1958 rule falls out of the composition:
+
+    | piece                        | supplies                        |
+    |------------------------------|---------------------------------|
+    | ``DenseLayer(Step(), n, 1)`` | the threshold unit              |
+    | ``PerceptronCriterion``      | (y_pred - y) as the error       |
+    | ``MiniBatchSampler(1)``      | one random sample per update    |
+    | ``GradientDescent(alpha)``   | w <- w - alpha * grad           |
+
     Targets must be encoded as {0, 1}.
     """
 
-    def __init__(self, data=None, alpha=0.01, n_iters=1000):
-        """Build the perceptron.
-
-        Parameters
-        ----------
-        data : DolceSet, optional
-            Holds X (and y when training). A bias column is appended internally.
-            When omitted, build a data-less optimizer and supply data later via
-            ``load_training``.
-        alpha : float, default 0.01
-            Learning rate; must be in (0, 1).
-        n_iters : int, default 1000
-            Number of online updates (one random sample each); must be positive.
+    def __init__(self, alpha: float = 0.01):
         """
-        # 1. Validate perceptron-specific input.
-        validate_alpha(alpha)
-
-        # 2. Assign perceptron-specific attributes before super().__init__, which
-        #    may call load_training.
+        Args:
+            alpha: learning rate; must be in (0, 1)
+        """
         self.alpha = alpha
+        self.model = None
+        self.history = None
+        self.is_fitted = False
+        self.training_metrics = None
 
-        # 3. Shared validation and attribute setup. The perceptron uses its own
-        #    step activation and 0/1 error, so no mse/bce loss is requested and
-        #    tol is left at the base default (unused: there is no tol-based stop).
-        super().__init__(data=data, n_iters=n_iters, loss_function=None)
+    def fit(self, data: DolceSet, n_epochs: int = 1000) -> "RosenblattPerceptron":
+        """
+        Trains the perceptron on ``data``.
 
-    @staticmethod
-    def _step(z):
-        """Heaviside step activation: 1 where z > 0, else 0."""
-        return (z > 0).astype(int)
+        Args:
+            data: training data (DolceSet) with targets in {0, 1}
+            n_epochs: number of online updates. One sample is drawn per epoch,
+                so an epoch here is a single update — the same unit the classic
+                formulation counts.
 
-    def fit(self):
+        Returns:
+            self
+        """
+        # 1. The threshold unit, starting from the origin.
+        self.model = Sequential(
+            DenseLayer(
+                activation=Step(),
+                input_size=data.X.shape[1],
+                output_size=1,
+                parameters_initializer=ZeroParametersInitializer(),
+            )
+        )
 
-        validate_if_training_not_loaded(self.is_training_loaded)
-        validate_if_fitting_without_target(self.can_train)
+        # 2. One random sample per update, and the rule itself.
+        trainer = Trainer(
+            model=self.model,
+            loss=PerceptronCriterion(),
+            optimizer=GradientDescent(alpha=self.alpha),
+            sampler=MiniBatchSampler(batch_size=1),
+        )
 
-        for iter in range(self.n_iters):
+        # 3. tol=None: the error rate is unchanged by any update that lands on
+        #    an already-correct sample, so a tolerance-based stop would fire on
+        #    the first such step rather than at convergence.
+        self.history = trainer.run(data, n_epochs=n_epochs, tol=None)
 
-            # 1. Current weights (last row of the weight history).
-            weights = self.get_weights(iteration=iter)
+        self.is_fitted = True
+        self.training_metrics = self.predict(data)
+        return self
 
-            # 2. Draw one random training sample (online / stochastic update).
-            idx = np.random.choice(self.n_samples)
-            x = self.X[idx]
-            y = self.y[idx]
+    def _require_fitted(self) -> None:
+        if not self.is_fitted:
+            raise ValueError("Model is not fitted: call fit(data) first.")
 
-            # 3. Prediction via the step activation on the single sample.
-            y_pred = self._step(np.dot(x, weights))
+    @property
+    def weights(self) -> np.ndarray:
+        """
+        Returns:
+            Coefficient matrix of shape (n_features, 1), intercept excluded
+        """
+        self._require_fitted()
+        return self.model.layers[0].W.value
 
-            # 4. Perceptron learning rule: no update on correct predictions,
-            #    push weights toward x on a miss (and away from it otherwise).
-            updated_weights = weights + self.alpha * (y - y_pred) * x
-            self.append_weights(updated_weights)
+    @property
+    def bias(self) -> np.ndarray:
+        """
+        Returns:
+            Intercept, shape (1,)
+        """
+        self._require_fitted()
+        return self.model.layers[0].b.value
 
-            # 5. Track full-batch predictions and the 0/1 misclassification rate
-            #    so the convergence curve is available to the analyzer.
-            full_pred = self._step(np.matmul(self.X, updated_weights))
-            self.append_predictions(full_pred)
-            self.append_loss(np.mean(full_pred != self.y))
+    def predict(self, data: DolceSet) -> ClassificationAnalyzer:
+        """
+        Predicts class labels for ``data``.
 
-    def predict(self, data):
-        # Predict with the step activation on the final weights, adding the same
-        # bias column that training used.
-        X_with_bias = np.column_stack((data.X, np.ones(data.X.shape[0])))
-        final_weights = self.get_weights(iteration=-1)
-        return self._step(np.matmul(X_with_bias, final_weights))
+        Args:
+            data: data to predict on (DolceSet)
+
+        Returns:
+            ClassificationAnalyzer over the predicted {0, 1} labels
+        """
+        self._require_fitted()
+        return ClassificationAnalyzer(data.y, self.model.predict(data.X).ravel())

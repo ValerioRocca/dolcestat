@@ -15,7 +15,10 @@ class Parameters:
 
     def __init__(self, value):
         self.value = value
-        self.grad = np.zeros_like(value)
+        # dtype=float is required: np.zeros_like alone would inherit an integer
+        # dtype from an integer-valued initializer, and every "grad += ..."
+        # accumulation would then be truncated to zero.
+        self.grad = np.zeros_like(value, dtype=float)
 
     def zero_grad(self):
         "Zeroes the stored gradient. Called at the start of each epoch."

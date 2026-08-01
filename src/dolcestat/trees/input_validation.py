@@ -1,3 +1,5 @@
+"""Stores input validation for the tree models."""
+
 import numpy as np
 
 

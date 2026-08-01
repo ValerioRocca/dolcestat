@@ -1,3 +1,6 @@
+"""Stores input validation for the nearest-neighbour estimators."""
+
+
 def validate_k(k):
     if not isinstance(k, int):
         raise ValueError("k must be an integer.")

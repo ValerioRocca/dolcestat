@@ -1,3 +1,5 @@
+"""Stores the random forest model."""
+
 import numpy as np
 
 from dolcestat.metrics import ClassificationAnalyzer, RegressionAnalyzer

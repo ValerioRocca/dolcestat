@@ -7,27 +7,23 @@ import numpy as np
 from dolcestat.preprocessing.core import DolceSet
 
 
-def _make_batch(data: DolceSet, X: np.ndarray, y: np.ndarray) -> DolceSet:
+def _validate_can_train(data: DolceSet) -> None:
     """
-    Builds a DolceSet batch from raw arrays.
-
-    DolceSet.__init__ takes no arguments (it's normally populated via
-    load_from_polars_dataframe), so batches are built by constructing an
-    empty instance and assigning the sliced arrays directly.
+    Checks that ``data`` carries targets, and so can be sampled for training.
 
     Args:
-        data: source dataset the batch is drawn from (used for its class and can_train)
-        X: batch input features
-        y: batch targets
+        data: dataset about to be sampled (DolceSet)
 
-    Returns:
-        A DolceSet holding the given batch
+    Raises:
+        ValueError: if data has no target column, which would otherwise surface
+            as an opaque TypeError when indexing y (None) inside a sampler.
     """
-    batch = type(data)()
-    batch.X = X
-    batch.y = y
-    batch.can_train = data.can_train
-    return batch
+    if not data.can_train:
+        raise ValueError(
+            "Cannot sample training batches: this DolceSet has no target column "
+            "(can_train is False). Load it with "
+            "load_from_polars_dataframe(df, target_col=...) to train on it."
+        )
 
 
 class Sampler(ABC):
@@ -56,7 +52,11 @@ class BatchSampler(Sampler):
 
         Returns:
             Single-element list containing the whole dataset
+
+        Raises:
+            ValueError: if data carries no targets
         """
+        _validate_can_train(data)
         return [data]
 
 
@@ -78,13 +78,27 @@ class MiniBatchSampler(Sampler):
             data: dataset to sample from (DolceSet)
 
         Returns:
-            Single-element list containing one mini-batch
+            Single-element list containing one mini-batch. When batch_size
+            exceeds the number of rows, the batch is the whole dataset.
+
+        Raises:
+            ValueError: if data carries no targets
         """
+        _validate_can_train(data)
         X = data.X
         y = data.y
         n_samples = X.shape[0]
-        indices = np.random.choice(n_samples, self.batch_size, replace=False)
-        return [_make_batch(data, X[indices], y[indices])]
+
+        # Sampling without replacement cannot draw more rows than exist, so cap
+        # the request at the dataset size instead of raising.
+        size = min(self.batch_size, n_samples)
+
+        indices = np.random.choice(n_samples, size, replace=False)
+        return [
+            type(data)(
+                X=X[indices], y=y[indices], features=data.features, target=data.target
+            )
+        ]
 
 
 class MiniBatchIteratingSampler(Sampler):
@@ -106,16 +120,21 @@ class MiniBatchIteratingSampler(Sampler):
 
         Returns:
             List of mini-batches covering every row of data exactly once
+
+        Raises:
+            ValueError: if data carries no targets
         """
+        _validate_can_train(data)
         X = data.X
         y = data.y
         n_samples = X.shape[0]
         indices = np.random.permutation(n_samples)
         return [
-            _make_batch(
-                data,
-                X[indices[start : start + self.batch_size]],
-                y[indices[start : start + self.batch_size]],
+            type(data)(
+                X=X[indices[start : start + self.batch_size]],
+                y=y[indices[start : start + self.batch_size]],
+                features=data.features,
+                target=data.target,
             )
             for start in range(0, n_samples, self.batch_size)
         ]

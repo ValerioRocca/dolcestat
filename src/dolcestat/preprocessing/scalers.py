@@ -1,3 +1,5 @@
+"""Stores feature scaling strategies."""
+
 import polars as pl
 
 

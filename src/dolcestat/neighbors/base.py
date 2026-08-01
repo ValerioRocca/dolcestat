@@ -1,3 +1,5 @@
+"""Stores the shared base for nearest-neighbour estimators."""
+
 from abc import ABC, abstractmethod
 
 import numpy as np
