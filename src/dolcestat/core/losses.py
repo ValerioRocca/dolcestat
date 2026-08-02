@@ -30,17 +30,24 @@ def validate_matching_shapes(y_pred: np.ndarray, y_true: np.ndarray) -> None:
 
 
 class Loss(ABC):
-    """Abstract base class for loss functions."""
+    """
+    Abstract base class for loss functions.
+
+    Contract. ``forward`` receives whatever the model's own forward returned and
+    ``backward`` returns the gradient in that same layout — a single array for a
+    single-output model, a tuple of arrays for a multi-headed one. Keeping the two
+    shapes mirrored is what lets ``Trainer`` hand the gradient straight back to the
+    model without knowing anything about its topology.
+    """
 
     @abstractmethod
-    def forward(
-        self, y_pred: np.ndarray, y_true: np.ndarray, training: bool = True
-    ) -> float:
+    def forward(self, y_pred, y_true: np.ndarray, training: bool = True) -> float:
         """
         Computes the loss.
 
         Args:
-            y_pred: predicted values (numpy array)
+            y_pred: predicted values, in the layout the model's forward produced —
+                a numpy array, or a tuple of them for a multi-headed model
             y_true: true values (numpy array), same shape as y_pred
             training: whether to cache the values needed for the backward pass.
                 Pass False to evaluate the loss as a pure metric, with no
@@ -51,11 +58,11 @@ class Loss(ABC):
         """
 
     @abstractmethod
-    def backward(self) -> np.ndarray:
+    def backward(self):
         """
         Returns:
-            dL/d(y_pred), evaluated at the y_pred that forward was handed, and
-            of the same shape.
+            dL/d(y_pred), evaluated at the y_pred that forward was handed, and in
+            the same layout and shape.
         """
 
 
@@ -153,6 +160,148 @@ class MeanSquaredError(Loss):
         """
         n = self.y_true.shape[0]
         return 2 * (self.y_pred - self.y_true) / n
+
+
+class GaussianNegativeLogLikelihood(Loss):
+    """
+    Negative log-likelihood of ``y ~ N(mu, sigma^2)`` with a per-sample variance.
+
+    This is the loss for **heteroscedastic** regression: the model predicts not
+    just where the target sits but how noisy it is there. It therefore consumes
+    *two* predictions rather than one, and pairs with a ``MultiHead`` network
+    whose heads carry ``LU`` (mu, the whole real line) and ``Softplus``
+    (sigma^2, strictly positive), the same way ``MeanSquaredError`` pairs with
+    ``LU`` and ``BinaryCrossEntropy`` pairs with ``Sigmoid``.
+
+    Per sample, writing ``r = y - mu``::
+
+        L_i        = 0.5 log(2 pi) + 0.5 log(sigma^2) + r^2 / (2 sigma^2)
+        dL_i/dmu   = (mu - y) / sigma^2
+        dL_i/dvar  = 1/(2 sigma^2) - r^2/(2 sigma^4) = (1 - r^2/sigma^2)/(2 sigma^2)
+
+    Two things fall out of those derivatives, and they are the point of the class.
+
+    Setting ``dL/dvar = 0`` gives ``sigma^2 = r^2``. The loss is minimized when the
+    predicted variance equals the squared residual, which is exactly the maximum
+    likelihood estimate — that is *why* a second head, given this loss and nothing
+    else, learns the noise scale.
+
+    Freezing ``sigma^2 = 1`` reduces ``dL/dmu`` to ``(mu - y)/n``, precisely half
+    of ``MeanSquaredError.backward``'s ``2(mu - y)/n``. Squared error **is** this
+    loss under a homoscedastic unit variance, up to a factor of 2 and additive
+    constants. The new content is the ``1/sigma^2`` factor: each residual is
+    reweighted by the model's own confidence, so points the network believes are
+    noisy pull on the mean head less. That is inverse-variance (generalized least
+    squares) weighting, arrived at rather than imposed.
+
+    Unlike the other losses here, the value is a log-density, not a distance: it
+    is **not** bounded below by zero and a training curve that goes negative is
+    working, not broken. For the same reason a ``tol`` tuned against a squared
+    error does not carry over.
+
+    Fitting notes. Two heads coupled through one likelihood optimize less kindly
+    than a single regression head, and the failure is quiet — a variance head that
+    gives up predicts one constant, and the run merely converges to the
+    homoscedastic answer instead of erroring. In practice:
+
+    - **Standardize the target.** ``HeInitializer`` starts the variance head near
+      ``softplus(0) = 0.7``, which is a sensible prior only if the noise scale is
+      order 1.
+    - **Use a small learning rate**, and prefer plain gradient descent to
+      momentum here. Empirically ``alpha=0.05`` with Nesterov (an effective step
+      near 0.5) diverges on a plain sine-with-growing-noise problem, while
+      ``alpha=0.01`` without momentum recovers the noise curve from every
+      initialization tried.
+    - **Warm up the mean.** Fitting the trunk and mean head against
+      ``MeanSquaredError`` first gives the variance head honest residuals to
+      explain. Because a ``Sequential`` holds layer objects by reference, this
+      needs no extra machinery::
+
+          Sequential(*net.trunk.layers, *net.heads[0].layers).fit(
+              data, loss=MeanSquaredError(), n_epochs=150
+          )
+          net.fit(data, loss=GaussianNegativeLogLikelihood(), n_epochs=650)
+
+    - **Keep batches reasonably large.** The variance head estimates a second
+      moment, far noisier per sample than a mean.
+
+    Judge the result by calibration, not by RMSE: roughly 68% of held-out targets
+    should fall within one predicted sigma of mu, in *every* region of the input
+    space. A homoscedastic fit can only manage that on average.
+    """
+
+    def forward(self, y_pred, y_true: np.ndarray, training: bool = True) -> float:
+        """
+        Computes the mean negative log-likelihood.
+
+        Args:
+            y_pred: tuple ``(mu, sigma^2)`` of predictions, each shaped like
+                y_true — i.e. what a two-headed network's forward returns
+            y_true: true values (numpy array), same shape as each prediction
+            training: whether to cache the values for the backward pass
+
+        Returns:
+            Scalar loss value
+
+        Raises:
+            ValueError: if y_pred is not a 2-tuple, if the shapes disagree, or if
+                any predicted variance is non-positive.
+        """
+
+        # 1. A single array here means the model was a Sequential, not a
+        #    MultiHead. Say so, rather than failing on an opaque unpack.
+        if not isinstance(y_pred, (tuple, list)) or len(y_pred) != 2:
+            raise ValueError(
+                "GaussianNegativeLogLikelihood expects y_pred to be a "
+                "(mu, sigma_squared) pair, as returned by a two-headed MultiHead "
+                f"network, but got {type(y_pred).__name__}. A single-output "
+                "Sequential cannot supply a variance."
+            )
+        mu, var = y_pred
+
+        # 2. Both predictions must line up with the targets elementwise.
+        validate_matching_shapes(mu, y_true)
+        validate_matching_shapes(var, y_true)
+
+        # 3. The likelihood is undefined for a non-positive variance, and NumPy
+        #    would return a silent nan rather than complaining. Point at the
+        #    activation, since a variance head wired to LU is the way this happens.
+        if not np.all(var > 0):
+            raise ValueError(
+                "Predicted variances must be strictly positive, but the smallest "
+                f"is {float(np.min(var))}. Give the variance head a Softplus "
+                "activation: LU leaves it free to go negative."
+            )
+
+        # 4. Cache for the backward pass; skipped for pure-metric calls.
+        if training:
+            self.mu = mu
+            self.var = var
+            self.y_true = y_true
+
+        # 5. Compute the loss value.
+        return float(
+            np.mean(0.5 * np.log(2 * np.pi * var) + (y_true - mu) ** 2 / (2 * var))
+        )
+
+    def backward(self) -> tuple:
+        """
+        Returns:
+            ``(dL/dmu, dL/dvar)``, one gradient per head and each shaped like
+            forward's corresponding prediction — the pair a two-headed
+            MultiHead's backward expects.
+        """
+        n = self.y_true.shape[0]
+        resid = self.mu - self.y_true
+
+        # Each residual is scaled by 1/var: the noisier the model thinks a point
+        # is, the less it pulls on the mean.
+        d_mu = resid / (n * self.var)
+
+        # Zero exactly where var == resid^2, the MLE variance.
+        d_var = (1.0 - resid**2 / self.var) / (2.0 * n * self.var)
+
+        return d_mu, d_var
 
 
 class BinaryCrossEntropy(Loss):

@@ -8,10 +8,11 @@ these, so they live here rather than inside any single model package.
 Dependencies flow one way: ``core`` imports nothing from the model packages.
 """
 
-from .activations import LU, ActivationFunction, ReLU, Sigmoid, Step
+from .activations import LU, ActivationFunction, ReLU, Sigmoid, Softplus, Step
 from .history import History
 from .losses import (
     BinaryCrossEntropy,
+    GaussianNegativeLogLikelihood,
     Loss,
     MeanSquaredError,
     PerceptronCriterion,
@@ -38,10 +39,12 @@ __all__ = [
     "LU",
     "ReLU",
     "Sigmoid",
+    "Softplus",
     "Step",
     "Loss",
     "MeanSquaredError",
     "BinaryCrossEntropy",
+    "GaussianNegativeLogLikelihood",
     "PerceptronCriterion",
     "Parameters",
     "ParametersInitializer",

@@ -167,6 +167,24 @@ class Trainer:
                 # T7. Model backward: propagate that gradient back through the
                 #     layers, each one both passing dL/d(its input) further down
                 #     and accumulating dL/d(its parameters) into Parameters.grad.
+                #     Concretely, per layer l, this does two things via the chain
+                #     rule:
+                #     1. Propagate the gradient back to the previous layer:
+                #        dL/dz(l) = dL/dz(l+1) dz(l+1)/da(l) da(l)/dz(l) where:
+                #        - dL/dz(l+1) is just dL/dz passed from the layer above.
+                #        - dz(l+1)/da(l) is the matrix [weights(l+1), bias(l+1)]
+                #        - da(l)/dz(l) is the derivative of the activation function
+                #          (this is why the activation output is cached in T4).
+                #        Note. The output layer has no next layer: there,
+                #        dL/dz(l) = dL/da(l) da(l)/dz(l), where dL/da(l) is T6's
+                #        grad.
+                #     2. Compute the gradients of the layer's own parameters:
+                #        dL/dW(l) = dL/dz(l) dz(l)/dW(l) where:
+                #        - dL/dz(l) is computed in the previous step.
+                #        - dz(l)/dW(l) is just the input to the layer (this is why
+                #          it's cached in T4).
+                #        These are stored in the layer's Parameter objects so T8
+                #        can simply retrieve them.
                 self.model.backward(grad)
 
                 # T8. Apply the update rule. The optimizer reads the gradients

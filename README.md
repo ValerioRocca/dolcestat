@@ -23,9 +23,9 @@ the notebooks in order — they build a full **preprocess → fit → evaluate**
 |---|---|
 | _start here_ | [00 · quickstart](notebooks/00_quickstart.ipynb) |
 | `dolcestat.preprocessing` | [01 · preprocessing](notebooks/01_preprocessing.ipynb) |
-| `dolcestat.linear_models` | [02 · linear regression](notebooks/02_linear_regression.ipynb) · [03 · logistic regression](notebooks/03_logistic_regression.ipynb) |
-| `dolcestat.core` · `dolcestat.optimization` | [04 · optimization](notebooks/04_optimization.ipynb) |
-| `dolcestat.neighbors` | [05 · k-nearest neighbours](notebooks/05_knn.ipynb) |
-| `dolcestat.metrics` | [06 · metrics](notebooks/06_metrics.ipynb) |
+| `dolcestat.linear_models` | [02 · linear regression](notebooks/02_linear_regression.ipynb) · [03 · logistic regression](notebooks/03_logistic_regression.ipynb) · [04 · regression code overview](notebooks/04_regression_code_overview.ipynb) |
+| `dolcestat.core` · `dolcestat.optimization` | [05 · optimization](notebooks/05_optimization.ipynb) |
+| `dolcestat.neighbors` | [06 · k-nearest neighbours](notebooks/06_knn.ipynb) |
 | `dolcestat.trees` | [07 · decision trees & random forests](notebooks/07_trees.ipynb) |
-| `dolcestat.neural_networks` | [08 · rosenblatt perceptron](notebooks/08_perceptron.ipynb) |
+| `dolcestat.neural_networks` | [08 · rosenblatt perceptron](notebooks/08_perceptron.ipynb) · [09 · feed-forward networks](notebooks/09_FFNN.ipynb) |
+| `dolcestat.metrics` | [metrics](notebooks/XX_metrics.ipynb) |
