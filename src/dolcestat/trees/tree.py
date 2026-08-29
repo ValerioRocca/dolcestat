@@ -1,6 +1,3 @@
-"""Stores the node a decision tree is built from."""
-
-
 class Node:
     def __init__(self, X, y, depth):
         self.X = X

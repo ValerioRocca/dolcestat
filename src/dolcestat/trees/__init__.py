@@ -1,5 +1,3 @@
-"""Decision trees and random forests."""
-
 from .decision_tree import DecisionTree
 from .random_forest import RandomForest
 from .tree import Node

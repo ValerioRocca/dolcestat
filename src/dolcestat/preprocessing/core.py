@@ -1,5 +1,3 @@
-"""Stores the DolceSet dataset container."""
-
 import polars as pl
 
 from dolcestat.preprocessing.scalers import (
@@ -23,41 +21,14 @@ def is_column_in_dataframe(colname, df):
 
 class DolceSet:
 
-    def __init__(self, X=None, y=None, features=None, target=None):
-        """Build a dataset, optionally straight from arrays.
-
-        Called with no arguments this yields an empty DolceSet, to be populated
-        via ``load_from_polars_dataframe`` or ``load_from_dict`` — the usual
-        entry point. Passing arrays directly builds a dataset without a Polars
-        round-trip, which is what (mini-)batch samplers need and what makes the
-        library usable from plain NumPy.
-
-        Parameters
-        ----------
-        X : np.ndarray, optional
-            Feature matrix, shape (n_samples, n_features).
-        y : np.ndarray, optional
-            Targets. Supplying them is what makes the set trainable.
-        features : list of str, optional
-            Feature column names.
-        target : str, optional
-            Target column name.
-
-        Notes
-        -----
-        Array-built sets have no ``df_as_polars``, so the DataFrame-backed
-        methods (``get_column``, ``scale``, ``one_hot_encode``, …) do not apply
-        to them.
-        """
+    def __init__(self):
         self.df_as_polars = None
-        self.X = X
-        self.y = y
-        self.features = features
-        self.target = target
+        self.X = None
+        self.y = None
+        self.features = None
+        self.target = None
         self._scaling_applied = []
-        # Trainability is a property of the data: a set is trainable exactly
-        # when it carries targets.
-        self.can_train = y is not None
+        self.can_train = None
 
     def _is_column_in_features(self, column_name):
         if column_name not in self.features:

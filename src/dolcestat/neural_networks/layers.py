@@ -4,8 +4,8 @@ from abc import ABC, abstractmethod
 
 import numpy as np
 
-from dolcestat.core.activations import ActivationFunction
-from dolcestat.core.parameters import HeInitializer, ParametersInitializer
+from dolcestat.neural_networks.activations import ActivationFunction
+from dolcestat.neural_networks.parameters import HeInitializer, ParametersInitializer
 
 
 class Layer(ABC):
@@ -44,22 +44,17 @@ class DenseLayer(Layer):
         activation: ActivationFunction,
         input_size: int,
         output_size: int,
-        parameters_initializer: ParametersInitializer = None,
+        parameters_initializer: ParametersInitializer = HeInitializer(),
     ):
         """
         Args:
             activation: activation function applied to the linear output
             input_size: number of input features
             output_size: number of output features
-            parameters_initializer: strategy used to initialize weights and
-                biases. Defaults to HeInitializer().
+            parameters_initializer: strategy used to initialize weights and biases
         """
 
-        # 1. Weights initialization. The default initializer is built here, not
-        #    in the signature: a default argument is evaluated once at import,
-        #    so every layer would otherwise share a single initializer instance.
-        if parameters_initializer is None:
-            parameters_initializer = HeInitializer()
+        # 1. Weights initialization
         self.W, self.b = parameters_initializer.initialize(input_size, output_size)
 
         # 2. Activation initialization

@@ -1,5 +1,3 @@
-"""Stores the k-nearest-neighbours estimators."""
-
 import numpy as np
 
 from dolcestat.metrics import KNNClassificationAnalyzer, KNNRegressionAnalyzer
