@@ -30,6 +30,25 @@ def _make_batch(data: DolceSet, X: np.ndarray, y: np.ndarray) -> DolceSet:
     return batch
 
 
+def _validate_can_train(data: DolceSet) -> None:
+    """
+    Checks that ``data`` carries targets, and so can be sampled for training.
+
+    Args:
+        data: dataset about to be sampled (DolceSet)
+
+    Raises:
+        ValueError: if data has no target column, which would otherwise surface
+            as an opaque TypeError when indexing y (None) inside a sampler.
+    """
+    if not data.can_train:
+        raise ValueError(
+            "Cannot sample training batches: this DolceSet has no target column "
+            "(can_train is False). Load it with "
+            "load_from_polars_dataframe(df, target_col=...) to train on it."
+        )
+
+
 class Sampler(ABC):
     """Abstract base class for (mini-)batching strategies."""
 
@@ -57,6 +76,7 @@ class BatchSampler(Sampler):
         Returns:
             Single-element list containing the whole dataset
         """
+        _validate_can_train(data)
         return [data]
 
 
@@ -80,6 +100,7 @@ class MiniBatchSampler(Sampler):
         Returns:
             Single-element list containing one mini-batch
         """
+        _validate_can_train(data)
         X = data.X
         y = data.y
         n_samples = X.shape[0]
@@ -107,6 +128,7 @@ class MiniBatchIteratingSampler(Sampler):
         Returns:
             List of mini-batches covering every row of data exactly once
         """
+        _validate_can_train(data)
         X = data.X
         y = data.y
         n_samples = X.shape[0]

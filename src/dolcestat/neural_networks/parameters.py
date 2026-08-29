@@ -15,7 +15,10 @@ class Parameters:
 
     def __init__(self, value):
         self.value = value
-        self.grad = np.zeros_like(value)
+        # dtype=float explicitly: np.zeros_like would otherwise inherit an
+        # integer dtype from an integer-valued parameter, and the first
+        # ``grad += <float array>`` in a backward pass would raise.
+        self.grad = np.zeros_like(value, dtype=float)
 
     def zero_grad(self):
         "Zeroes the stored gradient. Called at the start of each epoch."
