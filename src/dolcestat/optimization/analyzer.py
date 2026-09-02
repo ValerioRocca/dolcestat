@@ -76,7 +76,13 @@ class OptimizerAnalyzer:
             ax.legend(title="optimizer")
         else:
             optimizer = self.optimizers[0]
-            ax.set_title(f"Loss ({optimizer.loss_function.upper()})")
+            # The tracked loss carries the l1/l2 penalty when one is set, so
+            # say so rather than labelling a penalized curve as plain MSE/BCE.
+            penalized = (
+                getattr(optimizer, "l1", 0) > 0 or getattr(optimizer, "l2", 0) > 0
+            )
+            suffix = " + penalty" if penalized else ""
+            ax.set_title(f"Loss ({optimizer.loss_function.upper()}{suffix})")
         if log_scale:
             ax.set_yscale("log")
         return ax
