@@ -103,3 +103,17 @@ def validate_momentum_rate(momentum_rate):
         raise ValueError("momentum_rate must be a float or int.")
     if not (0 <= momentum_rate < 1):
         raise ValueError("momentum_rate must be in the interval [0, 1).")
+
+
+def validate_l1(l1):
+    if not isinstance(l1, (float, int)):
+        raise ValueError("l1 must be a float or int.")
+    if l1 < 0:
+        raise ValueError("l1 must be non-negative.")
+
+
+def validate_l2(l2):
+    if not isinstance(l2, (float, int)):
+        raise ValueError("l2 must be a float or int.")
+    if l2 < 0:
+        raise ValueError("l2 must be non-negative.")
