@@ -29,3 +29,4 @@ the notebooks in order — they build a full **preprocess → fit → evaluate**
 | `dolcestat.metrics` | [06 · metrics](notebooks/06_metrics.ipynb) |
 | `dolcestat.trees` | [07 · decision trees & random forests](notebooks/07_trees.ipynb) |
 | `dolcestat.neural_networks` | [08 · rosenblatt perceptron](notebooks/08_perceptron.ipynb) · [09 · feed-forward networks](notebooks/09_FFNN.ipynb) |
+| `dolcestat.clustering` | [10 · clustering](notebooks/10_clustering.ipynb) |
