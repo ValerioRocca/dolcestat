@@ -2,8 +2,8 @@ from abc import ABC, abstractmethod
 
 import numpy as np
 
-from .distances import minkowski
-from .input_validation import validate_k, validate_metric, validate_weights
+from .distances import compute_distances_matrix
+from .input_validation import validate_k, validate_weights
 
 
 class BaseNeighbors(ABC):
@@ -13,25 +13,7 @@ class BaseNeighbors(ABC):
         self.lab_y = labeled_data.y
 
     def _compute_distances_matrix(self, X_lab, X_unlab, metric, minkowski_p):
-        validate_metric(metric, minkowski_p)
-
-        # 1. Set correct Minkowski p
-        #    (Minkowski is generalization of Manhattan and Euclidean)
-        match metric:
-            case "euclidean":
-                minkowski_p = 2
-            case "manhattan":
-                minkowski_p = 1
-
-        # 2. Iterate over each combination of rows
-        dist_matrix = []
-        for x_unlab in X_unlab:
-            row = []
-            for x_lab in X_lab:
-                distance = minkowski(x_unlab, x_lab, minkowski_p)
-                row.append(distance)
-            dist_matrix.append(row)
-        return np.array(dist_matrix)
+        return compute_distances_matrix(X_unlab, X_lab, metric, minkowski_p)
 
     def _get_knn_idxs(self, distances_matrix, k):
         """Returns the indexes of the K nearest neighbours for each unit to predict"""
