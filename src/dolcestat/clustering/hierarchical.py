@@ -21,8 +21,8 @@ class Cluster:
         IDs of the observations belonging to the cluster. A leaf holds a
         single-element list with the index of its observation; a merged
         cluster holds the members of the two clusters it was built from.
-    dist_matrix_idx : int or None
-        Row/column of the current distance matrix representing this cluster.
+    linkage_matrix_idx : int or None
+        Row/column of the current linkage matrix representing this cluster.
         Because rows are deleted as clusters merge, this index is rewritten at
         every iteration, and set to None once the cluster acquires a parent.
     height : float
@@ -36,10 +36,10 @@ class Cluster:
         clusters keep their place in the list but are skipped by later merges.
     """
 
-    def __init__(self, members_ids, dist_matrix_idx, height):
+    def __init__(self, members_ids, linkage_matrix_idx, height):
         self.has_parent = False
         self.members_ids = members_ids
-        self.dist_matrix_idx = dist_matrix_idx
+        self.linkage_matrix_idx = linkage_matrix_idx
         self.height = height
 
 
@@ -85,34 +85,32 @@ class HierarchicalClustering:
             the last element is the root spanning every observation.
         """
 
-        # WHAT SHOULD HAPPEN IF TWO POINTS ARE EQUAL?
-        # RENAME DISTANCE MATRIX TO LINKAGE MATRIX? (and comments accordingly)
-
         X = data.X
         clusters = []
         validate_linkage(linkage)
 
-        # 1. Compute distance matrix
-        dist_matrix = compute_distances_matrix(X, X, metric="euclidean")
-        np.fill_diagonal(dist_matrix, np.inf)  # add inf to avoid self-merging
+        # 1. Compute linkage matrix
+        linkage_matrix = compute_distances_matrix(X, X, metric="euclidean")
+        np.fill_diagonal(linkage_matrix, np.inf)  # add inf to avoid self-merging
 
         # 2. Assign each point to its own cluster
-        clusters += [Cluster([i], i, 0.0) for i in range(dist_matrix.shape[0])]
+        clusters += [Cluster([i], i, 0.0) for i in range(linkage_matrix.shape[0])]
 
         # Until there is only one cluster left...
         for _ in range(X.shape[0] - 1):
 
             # 3. Find the two clusters with the smallest distance
-            dist_matrix_idxs_to_be_merged = np.array(
-                np.unravel_index(np.argmin(dist_matrix), dist_matrix.shape)
+            linkage_matrix_idxs_to_be_merged = np.array(
+                np.unravel_index(np.argmin(linkage_matrix), linkage_matrix.shape)
             )
 
-            # 4. Create new cluster's distance row/column via Lance-Williams
+            # 4. Create new cluster's linkage row/column via Lance-Williams
             #    formula
             # 4a. Extract linkages
             new_cluster_linkage_vector = []
-            linkage_ij = dist_matrix[
-                dist_matrix_idxs_to_be_merged[0], dist_matrix_idxs_to_be_merged[1]
+            linkage_ij = linkage_matrix[
+                linkage_matrix_idxs_to_be_merged[0],
+                linkage_matrix_idxs_to_be_merged[1],
             ]
             new_cluster_height = linkage_ij
             # 4b. Extract list of left and right members to be merged
@@ -121,7 +119,7 @@ class HierarchicalClustering:
                 for i in [0, 1]
                 for x in clusters
                 if x.has_parent == False
-                and x.dist_matrix_idx == dist_matrix_idxs_to_be_merged[i]
+                and x.linkage_matrix_idx == linkage_matrix_idxs_to_be_merged[i]
             ]
             # 4c. Extract length for other clusters (excluding the two being
             #     merged)
@@ -129,15 +127,15 @@ class HierarchicalClustering:
                 len(x.members_ids)
                 for x in clusters
                 if x.has_parent == False
-                and x.dist_matrix_idx not in dist_matrix_idxs_to_be_merged
+                and x.linkage_matrix_idx not in linkage_matrix_idxs_to_be_merged
             ]
-            other_dist_columns = np.delete(
-                dist_matrix[dist_matrix_idxs_to_be_merged, :],
-                dist_matrix_idxs_to_be_merged,
+            other_linkage_columns = np.delete(
+                linkage_matrix[linkage_matrix_idxs_to_be_merged, :],
+                linkage_matrix_idxs_to_be_merged,
                 axis=1,
             )
             for (linkage_ik, linkage_jk), size_k in zip(
-                other_dist_columns.T, other_clusters_length
+                other_linkage_columns.T, other_clusters_length
             ):
                 linkage_ijk = apply_lance_williams_formula(
                     dist_i=linkage_ik,
@@ -150,15 +148,19 @@ class HierarchicalClustering:
                 )
                 new_cluster_linkage_vector.append(linkage_ijk)
 
-            # 5. Update the distance matrix
+            # 5. Update the linkage matrix
             # 5a. Remove rows and columns corresponding to the merged units
-            dist_matrix = np.delete(dist_matrix, dist_matrix_idxs_to_be_merged, axis=0)
-            dist_matrix = np.delete(dist_matrix, dist_matrix_idxs_to_be_merged, axis=1)
+            linkage_matrix = np.delete(
+                linkage_matrix, linkage_matrix_idxs_to_be_merged, axis=0
+            )
+            linkage_matrix = np.delete(
+                linkage_matrix, linkage_matrix_idxs_to_be_merged, axis=1
+            )
             # 5b. Append the new cluster's row and column, with inf on its
             #     own diagonal entry to avoid self-merging
-            dist_matrix = np.vstack([dist_matrix, new_cluster_linkage_vector])
+            linkage_matrix = np.vstack([linkage_matrix, new_cluster_linkage_vector])
             new_column = np.append(new_cluster_linkage_vector, np.inf)
-            dist_matrix = np.column_stack([dist_matrix, new_column])
+            linkage_matrix = np.column_stack([linkage_matrix, new_column])
 
             # 5. Updates the other clusters
             for cluster in clusters:
@@ -167,23 +169,23 @@ class HierarchicalClustering:
                 if cluster.has_parent == True:
                     continue
 
-                # Clusters not merged and not to be merged: update their dist_matrix_idx
-                # after deletion at step 4a.
-                if cluster.dist_matrix_idx not in dist_matrix_idxs_to_be_merged:
-                    cluster.dist_matrix_idx -= np.sum(
-                        dist_matrix_idxs_to_be_merged < cluster.dist_matrix_idx
+                # Clusters not merged and not to be merged: update their
+                # linkage_matrix_idx after deletion at step 4a.
+                if cluster.linkage_matrix_idx not in linkage_matrix_idxs_to_be_merged:
+                    cluster.linkage_matrix_idx -= np.sum(
+                        linkage_matrix_idxs_to_be_merged < cluster.linkage_matrix_idx
                     )
 
-                # Clusters to be merged: update has_parent and dist_matrix_idx
+                # Clusters to be merged: update has_parent and linkage_matrix_idx
                 # parameters
                 else:
                     cluster.has_parent = True
-                    cluster.dist_matrix_idx = None
+                    cluster.linkage_matrix_idx = None
 
             # 6. Create and append the new cluster
             new_cluster = Cluster(
                 members_ids=members_ids_to_be_merged[0] + members_ids_to_be_merged[1],
-                dist_matrix_idx=dist_matrix.shape[0] - 1,
+                linkage_matrix_idx=linkage_matrix.shape[0] - 1,
                 height=new_cluster_height,
             )
             clusters.append(new_cluster)
