@@ -1,10 +1,12 @@
 """Neural networks: layers, containers, and the pieces that train them.
 
-This package is self-contained. Everything a network needs -- activations,
-losses, parameter initializers, samplers, the optimizer and the training loop --
-lives here, and the only import from the rest of the library is the DolceSet
-data container. In particular the ``GradientDescent`` exported here is *not*
-``dolcestat.optimization``'s: see ``optimizers.py`` for why the two coexist.
+Everything a network needs -- activations, losses, parameter initializers,
+samplers, the optimizer and the training loop -- lives here. From the rest of
+the library the package takes the DolceSet data container, the analyzers that
+``predict`` returns, and, for the ``RosenblattPerceptron`` only, the base class
+of ``dolcestat.optimization``'s optimizers. In particular the
+``GradientDescent`` exported here is *not* ``dolcestat.optimization``'s: see
+``optimizers.py`` for why the two coexist.
 """
 
 from .activations import LU, ActivationFunction, ReLU, Sigmoid, Softplus

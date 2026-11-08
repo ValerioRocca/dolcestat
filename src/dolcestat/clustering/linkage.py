@@ -1,4 +1,4 @@
-import numpy as np
+"""Lance-Williams update rules for the linkage criteria of hierarchical clustering."""
 
 from dolcestat.clustering.input_validation import validate_linkage
 

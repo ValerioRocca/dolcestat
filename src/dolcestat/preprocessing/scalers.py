@@ -1,7 +1,10 @@
+"""Min-max scaling and standardization of the columns of a Polars DataFrame."""
+
 import polars as pl
 
 
 def is_valid_scaling_strategy(strategy):
+    """Raises a ValueError unless ``strategy`` is 'min-max' or 'standardize'."""
     valid_strategies = ["min-max", "standardize"]
     if strategy not in valid_strategies:
         raise ValueError(
@@ -27,6 +30,11 @@ def _resolve_per_column_param(name, value, columns):
     return {col: value for col in columns}
 
 
+def _is_zero_or_undefined(value):
+    # None (null) or NaN (a single row has no standard deviation) or exactly 0
+    return value is None or value != value or value == 0
+
+
 def standardize_dataframe(df, mean=None, std=None):
     """Standardize ``df``.
 
@@ -39,6 +47,13 @@ def standardize_dataframe(df, mean=None, std=None):
         means_dict = df.mean().row(0, named=True)
     if stds_dict is None:
         stds_dict = df.std().row(0, named=True)
+    for col in df.columns:
+        if _is_zero_or_undefined(stds_dict[col]):
+            raise ValueError(
+                f"Column '{col}' has a zero or undefined standard deviation "
+                "(it is constant, or has a single row), so it cannot be "
+                "standardized. Drop it or use another strategy."
+            )
     scaled_df = df.with_columns(
         (pl.col(col) - means_dict[col]) / stds_dict[col] for col in df.columns
     )
@@ -57,6 +72,12 @@ def min_max_scale_dataframe(df, min=None, max=None):
         min_dict = df.min().row(0, named=True)
     if max_dict is None:
         max_dict = df.max().row(0, named=True)
+    for col in df.columns:
+        if _is_zero_or_undefined(max_dict[col] - min_dict[col]):
+            raise ValueError(
+                f"Column '{col}' is constant (min equals max), so it cannot "
+                "be min-max scaled. Drop it or use another strategy."
+            )
     scaled_df = df.with_columns(
         (pl.col(col) - min_dict[col]) / (max_dict[col] - min_dict[col])
         for col in df.columns

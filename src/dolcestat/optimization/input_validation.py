@@ -1,30 +1,14 @@
-import numpy as np
+"""Checks on the settings of the optimizers."""
 
-
-def validate_X(X):
-    if not isinstance(X, np.ndarray):
-        raise ValueError("X must be a numpy array.")
-    if X.ndim != 2:
-        raise ValueError("X must be a 2D array (n_samples, n_features).")
-    if np.any(np.isinf(X)):
-        raise ValueError("X contains infinite values.")
-
-
-def validate_y(y):
-    if not isinstance(y, np.ndarray):
-        raise ValueError("y must be a numpy array.")
-    if y.ndim != 1:
-        raise ValueError("y must be a 1D array (n_samples,).")
-    if np.any(np.isinf(y)):
-        raise ValueError("y contains infinite values.")
-
-
-def validate_X_y(X, y):
-    if X.shape[0] != y.shape[0]:
-        raise ValueError("Number of samples in X and y must be the same.")
+from dolcestat._validation import (  # noqa: F401  (shared data checks, re-exported)
+    validate_X,
+    validate_X_y,
+    validate_y,
+)
 
 
 def validate_alpha(alpha):
+    """Checks the learning rate: a number in the open interval (0, 1)."""
     if not isinstance(alpha, (float, int)):
         raise ValueError("alpha must be a float or int.")
     if not (0 < alpha < 1):
@@ -32,6 +16,7 @@ def validate_alpha(alpha):
 
 
 def validate_n_iters(n_iters):
+    """Checks the iteration budget: a positive integer."""
     if not isinstance(n_iters, int):
         raise ValueError("n_iters must be an integer.")
     if n_iters <= 0:
@@ -39,6 +24,7 @@ def validate_n_iters(n_iters):
 
 
 def validate_tol(tol):
+    """Checks the convergence tolerance: a positive number."""
     if not isinstance(tol, (float, int)):
         raise ValueError("tol must be a float or int.")
     if tol <= 0:
@@ -46,6 +32,7 @@ def validate_tol(tol):
 
 
 def validate_loss_function(loss_function):
+    """Checks the loss name: 'mse', 'bce' or None (inferred from y at fit)."""
     if loss_function is not None and not isinstance(loss_function, str):
         raise ValueError("loss_function must be a string or None.")
     if loss_function is not None and loss_function not in ["mse", "bce"]:
@@ -53,12 +40,14 @@ def validate_loss_function(loss_function):
 
 
 def validate_flavor(flavor):
+    """Checks the gradient descent flavor: 'batch', 'sgd' or 'mini_batch'."""
     valid = {"batch", "sgd", "mini_batch"}
     if flavor not in valid:
         raise ValueError(f"flavor must be one of {sorted(valid)}, got '{flavor}'.")
 
 
 def validate_batch_fraction(batch_fraction):
+    """Checks the mini-batch share of the rows: a number in (0, 1]."""
     if not isinstance(batch_fraction, (float, int)):
         raise ValueError("batch_fraction must be a float or int.")
     if not (0 < batch_fraction <= 1):
@@ -66,6 +55,7 @@ def validate_batch_fraction(batch_fraction):
 
 
 def validate_get_weights_iteration(iteration, n_iters):
+    """Checks an iteration index: None, or an integer within the iteration budget."""
     if iteration is not None:
         if not isinstance(iteration, int):
             raise ValueError("iteration must be an integer.")
@@ -73,23 +63,8 @@ def validate_get_weights_iteration(iteration, n_iters):
             raise ValueError(f"iteration must be between {-n_iters} and {n_iters - 1}.")
 
 
-def validate_if_fitting_without_target(can_train):
-    if not can_train:
-        raise ValueError(
-            "Cannot fit: the DolceSet has no target and can only be used "
-            "for testing/prediction, not training."
-        )
-
-
-def validate_if_training_not_loaded(is_training_loaded):
-    if not is_training_loaded:
-        raise ValueError(
-            "Cannot fit: no training data has been loaded. Pass data at "
-            "construction or call load_training(data) before fit()."
-        )
-
-
 def validate_momentum_type(momentum_type):
+    """Checks the momentum variant: None, 'polyak' or 'nesterov'."""
     valid = {None, "polyak", "nesterov"}
     if momentum_type not in valid:
         raise ValueError(
@@ -99,6 +74,7 @@ def validate_momentum_type(momentum_type):
 
 
 def validate_momentum_rate(momentum_rate):
+    """Checks the momentum coefficient: a number in [0, 1)."""
     if not isinstance(momentum_rate, (float, int)):
         raise ValueError("momentum_rate must be a float or int.")
     if not (0 <= momentum_rate < 1):
@@ -106,6 +82,7 @@ def validate_momentum_rate(momentum_rate):
 
 
 def validate_l1(l1):
+    """Checks the L1 penalty strength: a non-negative number."""
     if not isinstance(l1, (float, int)):
         raise ValueError("l1 must be a float or int.")
     if l1 < 0:
@@ -113,6 +90,7 @@ def validate_l1(l1):
 
 
 def validate_l2(l2):
+    """Checks the L2 penalty strength: a non-negative number."""
     if not isinstance(l2, (float, int)):
         raise ValueError("l2 must be a float or int.")
     if l2 < 0:

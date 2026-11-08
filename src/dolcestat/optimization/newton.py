@@ -1,26 +1,31 @@
+"""Newton's method for linear (MSE) and logistic (BCE) objectives."""
+
 import numpy as np
 
 from .base import BaseOptimizer
-from .input_validation import (
-    validate_if_fitting_without_target,
-    validate_if_training_not_loaded,
-)
 
 
 class NewtonMethod(BaseOptimizer):
+    """Newton's method: each step solves with the exact Hessian of the loss.
 
-    def __init__(self, data=None, n_iters=100, tol=1e-6, loss_function=None):
+    Needs far fewer iterations than gradient descent but inverts a
+    ``(n_features + 1)`` square matrix at every step, and fails on perfectly
+    collinear features. After ``fit(data)`` the run is available through
+    ``get_weights()`` and ``get_loss()``.
+    """
+
+    def __init__(self, *, n_iters=100, tol=1e-6, loss_function=None):
         """Vanilla Newton method with explicit matrix inversion.
 
-        ``data`` is optional: when omitted, build a data-less optimizer and
-        supply data later via ``load_training``.
+        Built from its settings alone; ``fit(data)`` runs the iterations and
+        returns the optimizer.
         """
-        super().__init__(data, n_iters, tol, loss_function)
+        super().__init__(n_iters, tol, loss_function)
 
-    def fit(self):
+    def fit(self, data):
+        """Runs Newton's method on ``data`` and returns self."""
 
-        validate_if_training_not_loaded(self.is_training_loaded)
-        validate_if_fitting_without_target(self.can_train)
+        self._load_training(data)
 
         for iter in range(self.n_iters):
 
@@ -33,7 +38,15 @@ class NewtonMethod(BaseOptimizer):
             hessian = self._compute_hessian(pred, self.X, self.y)
 
             # 3. Compute step and update weights
-            step = -np.matmul(np.linalg.inv(hessian), grad)
+            try:
+                step = -np.matmul(np.linalg.inv(hessian), grad)
+            except np.linalg.LinAlgError:
+                raise ValueError(
+                    "The Hessian is singular, so Newton's method cannot take a "
+                    "step. This usually means some features are perfectly "
+                    "collinear (or constant): drop the redundant ones, or use "
+                    "gradient descent."
+                ) from None
             weights = weights + step
             self.append_weights(weights)
 
@@ -49,3 +62,6 @@ class NewtonMethod(BaseOptimizer):
                 delta_loss = abs(loss - prev_loss)
                 if delta_loss < self.tol:
                     break
+
+        self.is_fitted = True
+        return self

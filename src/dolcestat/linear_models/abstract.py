@@ -1,8 +1,16 @@
+"""Base class of the generalized linear models."""
+
+import copy
 from abc import ABC
 from typing import Callable
 
 import numpy as np
 
+from dolcestat._validation import (
+    validate_is_fitted,
+    validate_prediction_data,
+    validate_training_data,
+)
 from dolcestat.optimization.analyzer import OptimizerAnalyzer
 from dolcestat.optimization.gradient_descent import GradientDescent
 from dolcestat.optimization.newton import NewtonMethod
@@ -19,8 +27,10 @@ class GLMAbstract(ABC):
     shared ``fit``/``predict`` flow and the optimizer dispatch.
 
     The ``optimizer`` argument is either a string ("closed form" — linear only,
-    "gradient descent" or "newton") or a *data-less* ``GradientDescent`` /
-    ``NewtonMethod`` instance whose training data is loaded at fit time.
+    "gradient descent" or "newton") or a ``GradientDescent`` / ``NewtonMethod``
+    instance carrying the settings you want. The model never runs your
+    instance: each ``fit`` works on a fresh copy of it, so the instance stays a
+    reusable template and the model can be fitted again.
     """
 
     # --- The model spec: filled in by each concrete subclass ---
@@ -30,68 +40,75 @@ class GLMAbstract(ABC):
     _allowed_optimizers: set  # optimizer strings this model accepts
 
     def __init__(self, optimizer):
-        # The raw optimizer request (string or data-less optimizer instance).
+        validate_optimizer(optimizer, self._allowed_optimizers, type(self).__name__)
+        # The raw optimizer request (string or optimizer instance).
         self.optimizer = optimizer
         # The optimizer actually used to fit. None for the closed-form path.
         self.optimizer_obj = None
         self.weights = None
+        self.n_features = None
         self.is_fitted = False
         # Populated at fit time: a PredictionAnalyzer over the training data.
         self.training_metrics = None
 
-    def _resolve_optimizer(self, data):
-        """Build/configure the optimizer for ``data`` and return it.
+    def _validate_target(self, y):
+        """Hook for models that restrict the target (e.g. binary labels)."""
 
-        Returns the fit-ready optimizer instance, or None when fitting is
-        handled without an optimizer (closed-form path, see LinearRegression).
-        """
-        # 1. A pre-built, data-less optimizer instance: just load the data.
+    def _build_optimizer(self):
+        """A fit-ready optimizer for this model, or None when fitting is
+        handled without one (closed-form path, see LinearRegression)."""
+        # 1. An optimizer instance: work on a copy, pinned to this model's loss.
         if isinstance(self.optimizer, (GradientDescent, NewtonMethod)):
-            self.optimizer.load_training(data)
-            return self.optimizer
+            optimizer = copy.deepcopy(self.optimizer)
+            optimizer._require_loss_function(self._loss_function)
+            return optimizer
 
         # 2. A string request: build the matching optimizer with sane defaults.
         if self.optimizer == "gradient descent":
-            optimizer = GradientDescent(
+            return GradientDescent(
                 loss_function=self._loss_function,
                 flavor="mini_batch",
                 momentum_type="nesterov",
             )
-        elif self.optimizer == "newton":
-            optimizer = NewtonMethod(loss_function=self._loss_function)
-        else:
-            raise ValueError(f"Unsupported optimizer '{self.optimizer}'.")
+        if self.optimizer == "newton":
+            return NewtonMethod(loss_function=self._loss_function)
+        raise ValueError(f"Unsupported optimizer '{self.optimizer}'.")
 
-        optimizer.load_training(data)
-        return optimizer
+    def _fit_closed_form(self, data):
+        raise NotImplementedError(f"{type(self).__name__} has no closed-form solution.")
 
     def fit(self, data):
-        validate_optimizer(
-            self.optimizer, self._allowed_optimizers, type(self).__name__
-        )
+        """Fits the model on ``data`` (a DolceSet with a target); returns self."""
+        validate_training_data(data)
+        self._validate_target(data.y)
 
-        optimizer = self._resolve_optimizer(data)
-        if optimizer is not None:
-            optimizer.fit()
+        optimizer = self._build_optimizer()
+        if optimizer is None:
+            self._fit_closed_form(data)
+            self.optimizer_obj = None
+        else:
+            optimizer.fit(data)
             self.optimizer_obj = optimizer
             self.weights = optimizer.get_weights(iteration=-1)
 
+        self.n_features = data.X.shape[1]
         self.is_fitted = True
         self.training_metrics = self.predict(data)
         return self
 
     def _predict_values(self, data):
         """Raw fitted values (activated linear predictor) as a NumPy array."""
-        if not self.is_fitted:
-            raise ValueError("Cannot predict: call fit(data) first.")
+        validate_is_fitted(self.is_fitted, type(self).__name__)
+        validate_prediction_data(data, self.n_features)
         X = np.column_stack((data.X, np.ones(data.X.shape[0])))
         return self._activation(np.matmul(X, self.weights))
 
     def predict(self, data):
         """A PredictionAnalyzer over the model's predictions for ``data``.
 
-        Subclasses whose analyzer needs extra arguments (e.g. LinearRegression's
-        ``n_features``) override this.
+        ``data`` needs no target: without one the analyzer still carries the
+        predictions in ``y_fit``. Subclasses whose analyzer needs extra
+        arguments (e.g. LinearRegression's ``n_features``) override this.
         """
         return self._analyzer_class(data.y, self._predict_values(data))
 

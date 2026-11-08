@@ -1,3 +1,5 @@
+"""Ways of choosing the starting centroids of k-means."""
+
 import numpy as np
 
 from dolcestat.neighbors.distances import compute_distances_matrix

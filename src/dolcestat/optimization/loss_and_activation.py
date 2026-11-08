@@ -1,15 +1,19 @@
+"""Losses, gradients and Hessians of the linear and logistic objectives."""
+
 import numpy as np
 
 # --- Loss functions and their gradients ---
 
 
 def compute_mse_loss(y_true, y_pred):
+    """Mean squared error: the average of ``(y_true - y_pred) ** 2``."""
     n = len(y_true)
     mse_loss = np.sum((y_true - y_pred) ** 2) / n
     return mse_loss
 
 
 def compute_mse_gradient(X, y_true, y_pred):
+    """Gradient of the mean squared error with respect to the weights."""
     n = len(y_true)
     error = y_pred - y_true
     mse_gradient = (2 / n) * np.matmul(X.T, error)
@@ -17,16 +21,19 @@ def compute_mse_gradient(X, y_true, y_pred):
 
 
 def compute_mse_hessian(X, y_true, y_pred):
+    """Hessian of the mean squared error: constant, ``(2 / n) X'X``."""
     n = len(y_true)
     mse_hessian = (2 / n) * np.matmul(X.T, X)
     return mse_hessian
 
 
 def identity(z):
+    """Activation of linear regression: the weighted inputs unchanged."""
     return z
 
 
 def compute_bce_loss(y_true, y_pred):
+    """Binary cross-entropy of predicted probabilities (clipped away from 0 and 1)."""
     n = len(y_true)
     # To avoid log(0), we clip y_pred to a small value
     epsilon = 1e-15
@@ -41,6 +48,7 @@ def compute_bce_loss(y_true, y_pred):
 
 
 def compute_bce_gradient(X, y_true, y_pred):
+    """Gradient of the binary cross-entropy with respect to the weights."""
     n = len(y_true)
     # To avoid division by zero, we clip y_pred to a small value
     epsilon = 1e-15
@@ -51,6 +59,7 @@ def compute_bce_gradient(X, y_true, y_pred):
 
 
 def compute_bce_hessian(X, y_true, y_pred):
+    """Hessian of the binary cross-entropy: ``(1 / n) X' diag(p (1 - p)) X``."""
     n = len(y_true)
     # To avoid extreme values, we clip y_pred to a small value
     epsilon = 1e-15
@@ -62,4 +71,5 @@ def compute_bce_hessian(X, y_true, y_pred):
 
 
 def sigmoid(z):
+    """Activation of logistic regression: maps weighted inputs to (0, 1)."""
     return 1 / (1 + np.exp(-z))

@@ -38,3 +38,6 @@ htmlcov/
 # Other
 TODO.md
 GAPS.md
+
+# Local editor/agent settings
+.claude/

@@ -1,3 +1,5 @@
+"""Plots that show how fitted optimizers converged."""
+
 import matplotlib.pyplot as plt
 import seaborn as sns
 
@@ -5,6 +7,17 @@ from .base import BaseOptimizer
 
 
 class OptimizerAnalyzer:
+    """Compares the convergence of one or more fitted optimizers.
+
+    Parameters
+    ----------
+    optimizers : BaseOptimizer or iterable of BaseOptimizer
+        Fitted optimizers (e.g. ``GradientDescent``, ``NewtonMethod``).
+    labels : sequence of str, optional
+        One legend label per optimizer. By default the gradient descent flavor
+        or the class name is used, numbered when several share a name.
+    """
+
     def __init__(self, optimizers, labels=None):
         # Accept either a single BaseOptimizer or an iterable of them.
         if isinstance(optimizers, BaseOptimizer):
@@ -23,7 +36,7 @@ class OptimizerAnalyzer:
 
     @property
     def gd(self):
-        # Backward-compatible alias for the first (often only) model.
+        """The first (often the only) optimizer being analyzed."""
         return self.optimizers[0]
 
     def _default_label(self, optimizer):
@@ -53,6 +66,23 @@ class OptimizerAnalyzer:
     def plot_loss(
         self, from_iter: int = 0, to_iter: int = None, log_scale: bool = False, ax=None
     ):
+        """Plots the loss of each optimizer against the iteration number.
+
+        Parameters
+        ----------
+        from_iter, to_iter : int, optional
+            Slice of iterations to show (``to_iter`` is excluded). By default
+            the whole run is plotted.
+        log_scale : bool, default False
+            Use a logarithmic loss axis; useful when the loss spans decades.
+        ax : matplotlib Axes, optional
+            Axes to draw on. A new figure is created when None.
+
+        Returns
+        -------
+        matplotlib Axes
+            The axes holding the plot.
+        """
         sns.set_theme()
         if ax is None:
             fig, ax = plt.subplots()
@@ -82,7 +112,7 @@ class OptimizerAnalyzer:
                 getattr(optimizer, "l1", 0) > 0 or getattr(optimizer, "l2", 0) > 0
             )
             suffix = " + penalty" if penalized else ""
-            ax.set_title(f"Loss ({optimizer.loss_function.upper()}{suffix})")
+            ax.set_title(f"Loss ({optimizer.loss_label}{suffix})")
         if log_scale:
             ax.set_yscale("log")
         return ax

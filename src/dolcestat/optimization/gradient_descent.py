@@ -1,3 +1,5 @@
+"""Gradient descent in its batch, stochastic and mini-batch flavors."""
+
 import math
 
 import numpy as np
@@ -7,8 +9,6 @@ from .input_validation import (
     validate_alpha,
     validate_batch_fraction,
     validate_flavor,
-    validate_if_fitting_without_target,
-    validate_if_training_not_loaded,
     validate_l1,
     validate_l2,
     validate_momentum_rate,
@@ -18,10 +18,17 @@ from .utils import sample_rows_Xy
 
 
 class GradientDescent(BaseOptimizer):
+    """Gradient descent for linear (MSE) and logistic (BCE) objectives.
+
+    Supports batch, stochastic and mini-batch updates, Polyak or Nesterov
+    momentum, and L1/L2 penalties. After ``fit(data)`` the run is available
+    through ``get_weights()`` and ``get_loss()``; ``predict(data)`` applies the
+    final weights.
+    """
 
     def __init__(
         self,
-        data=None,
+        *,
         alpha=0.01,
         n_iters=1000,
         tol=1e-6,
@@ -35,12 +42,11 @@ class GradientDescent(BaseOptimizer):
     ):
         """Gradient descent optimizer for linear/logistic models.
 
+        Built from its settings alone; ``fit(data)`` runs the descent and
+        returns the optimizer.
+
         Parameters
         ----------
-        data : DolceSet, optional
-            Holds X (and y when training). A bias column is appended internally.
-            When omitted, build a data-less optimizer and supply data later via
-            ``load_training`` (e.g. through a model wrapper).
         alpha : float, default 0.01
             Learning rate; must be in (0, 1).
         n_iters : int, default 1000
@@ -49,7 +55,7 @@ class GradientDescent(BaseOptimizer):
             Convergence tolerance: stop once the absolute loss change drops
             below this value.
         loss_function : {"mse", "bce", None}, default None
-            Loss to optimize. Inferred from y when None and training is possible.
+            Loss to optimize. Inferred from y at fit time when None.
         flavor : {"batch", "sgd", "mini_batch"}, default "batch"
             Which subset of rows to use per iteration.
         batch_fraction : float, default 0.1
@@ -76,8 +82,7 @@ class GradientDescent(BaseOptimizer):
         validate_l1(l1)
         validate_l2(l2)
 
-        # 2. Assign GD-specific attributes before super().__init__, since that
-        #    may call load_training (overridden below), which reads them.
+        # 2. Assign GD-specific attributes
         self.alpha = alpha
         self.flavor = flavor
         self.batch_fraction = batch_fraction
@@ -87,19 +92,21 @@ class GradientDescent(BaseOptimizer):
         self.l1 = l1
         self.l2 = l2
 
-        # 3. Shared validation and attribute setup. When data is provided this
-        #    loads it and derives the mini-batch size via load_training.
-        super().__init__(data, n_iters, tol, loss_function)
+        # 3. Shared validation and attribute setup
+        super().__init__(n_iters, tol, loss_function)
 
-    def load_training(self, data):
+    def _penalty(self, weights):
+        # The regularization term of the objective, whose gradient fit() adds.
+        # The bias is the last weight and stays unpenalized.
+        w = weights[:-1]
+        return self.l1 * np.sum(np.abs(w)) + 0.5 * self.l2 * np.sum(w**2)
+
+    def fit(self, data):
+        """Runs gradient descent on ``data`` and returns self."""
+
+        self._load_training(data)
         # Derive the mini-batch size once the row count is known.
-        super().load_training(data)
         self.mini_batch_size = max(1, math.ceil(self.batch_fraction * self.n_samples))
-
-    def fit(self):
-
-        validate_if_training_not_loaded(self.is_training_loaded)
-        validate_if_fitting_without_target(self.can_train)
 
         for iter in range(self.n_iters):
 
@@ -147,17 +154,18 @@ class GradientDescent(BaseOptimizer):
                 updated_weights = weights - self.alpha * grad - momentum
             # 5b. Nesterov: momentum is already added before
             # Note: if Nesterov, below weights are accelerated ones
-            elif self.momentum_type == "nesterov" or self.momentum_type == None:
+            elif self.momentum_type == "nesterov" or self.momentum_type is None:
                 updated_weights = weights - self.alpha * grad
             self.append_weights(updated_weights)
 
             # 6. Track full-batch predictions and loss so the convergence
-            #    curve is comparable across flavors.
+            #    curve is comparable across flavors. The loss is the objective
+            #    being minimised, so it includes the l1/l2 penalty.
             full_pred = self._apply_activation_function(
                 np.matmul(self.X, pre_momentum_weights)
             )
             self.append_predictions(full_pred)
-            loss = self._compute_loss(full_pred)
+            loss = self._compute_loss(full_pred) + self._penalty(pre_momentum_weights)
             self.append_loss(loss)
 
             # 7. If converged, break GD
@@ -166,3 +174,6 @@ class GradientDescent(BaseOptimizer):
                 delta_loss = abs(loss - prev_loss)
                 if delta_loss < self.tol:
                     break
+
+        self.is_fitted = True
+        return self

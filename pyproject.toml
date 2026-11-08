@@ -1,24 +1,52 @@
 [build-system]
-requires = ["setuptools>=68", "wheel"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "dolcestat"
 version = "0.1.0"
+description = "Machine learning algorithms implemented from scratch with NumPy, for learning."
+readme = "README.md"
 requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Valerio Rocca", email = "valeriorocca999@gmail.com" }]
+keywords = ["machine learning", "statistics", "education", "numpy", "from scratch"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Education",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
 dependencies = [
-    "numpy",
-    "polars",
-    "matplotlib",
-    "seaborn",
+    "numpy>=1.24",
+    "polars>=1.0",
+    "matplotlib>=3.7",
+    "seaborn>=0.12",
 ]
 
+[project.urls]
+Homepage = "https://github.com/ValerioRocca/dolcestat"
+Source = "https://github.com/ValerioRocca/dolcestat"
+Issues = "https://github.com/ValerioRocca/dolcestat/issues"
+
 [project.optional-dependencies]
-dev = ["black", "isort"]
-notebooks = ["scikit-learn"]
+# Everything needed to run the notebooks
+notebooks = ["jupyterlab"]
+# The test suite compares the models against scikit-learn and SciPy
+test = ["pytest", "scikit-learn", "scipy"]
+dev = ["black", "isort", "pytest", "scikit-learn", "scipy"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
 
 [tool.black]
 line-length = 88
@@ -26,4 +54,4 @@ target-version = ["py310"]
 
 [tool.isort]
 profile = "black"
-src_paths = ["src"]
+src_paths = ["src", "tests"]

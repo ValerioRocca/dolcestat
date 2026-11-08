@@ -1,3 +1,5 @@
+"""K-means and k-medians clustering."""
+
 import numpy as np
 
 from dolcestat.clustering.centroids import CentroidsInitializer
@@ -5,16 +7,79 @@ from dolcestat.clustering.input_validation import (
     validate_flavor,
     validate_init_strategy,
     validate_max_iters,
+    validate_X,
 )
 from dolcestat.neighbors.distances import compute_distances_matrix
 from dolcestat.neighbors.input_validation import validate_k
-from dolcestat.preprocessing import DolceSet
 
 
 class KMeans:
+    """K-means (or k-medians) clustering.
 
-    def __init__(self):
-        pass
+    Built from its settings alone; ``fit(data)`` clusters ``data.X`` (the
+    target, if any, is ignored) and returns the model. After fitting:
+    ``centroids``, ``labels`` (cluster index of each row), ``n_iters``,
+    ``wcss`` and ``silhouette``.
+
+    Parameters
+    ----------
+    k : int
+        Number of clusters.
+    init_strategy : {"kmeans++", "random"}, default "kmeans++"
+        How the first centroids are chosen. Both draw from NumPy's global
+        random generator, so seed it (``np.random.seed``) to reproduce a fit.
+    flavor : {"kmeans", "kmedians"}, default "kmeans"
+        "kmeans" assigns by Euclidean distance and moves each centroid to the
+        mean of its points; "kmedians" uses Manhattan distance and the
+        coordinate-wise median, which resists outliers.
+    max_iters : int, default 100
+    track_history : bool, default False
+        Record the centroids and assignments of every iteration, in
+        ``centroids_history`` and ``assignments_history``.
+    """
+
+    def __init__(
+        self,
+        k,
+        *,
+        init_strategy="kmeans++",
+        flavor="kmeans",
+        max_iters=100,
+        track_history=False,
+    ):
+        validate_k(k)
+        validate_init_strategy(init_strategy)
+        validate_flavor(flavor)
+        validate_max_iters(max_iters)
+        self.k = k
+        self.init_strategy = init_strategy
+        self.flavor = flavor
+        self.max_iters = max_iters
+        self.track_history = track_history
+
+        self.is_fitted = False
+        self.centroids = None
+        self.labels = None
+        self.n_iters = None
+        self.wcss = None
+        self.centroids_history = None
+        self.assignments_history = None
+        self._X = None
+        self._silhouette = None
+
+    @property
+    def silhouette(self):
+        """Mean silhouette score of the fitted clustering (computed on first use).
+
+        For each point, ``a`` is its mean distance to the other points of its
+        cluster and ``b`` its mean distance to the nearest other cluster; the
+        score is ``(b - a) / max(a, b)``. NaN when there is a single cluster.
+        """
+        if not self.is_fitted:
+            raise ValueError("Cannot compute the silhouette: call fit(data) first.")
+        if self._silhouette is None:
+            self._silhouette = self._compute_silhouette_score(self._X, self.labels)
+        return self._silhouette
 
     def _compute_silhouette_score(self, X, labels):
 
@@ -26,75 +91,64 @@ class KMeans:
 
         # 1. Compute distance between every pair of points
         dist_matrix = compute_distances_matrix(X, X, metric="euclidean")
+        n = len(labels)
 
-        s = []
+        # 2. Total distance from each point to each cluster. A point's distance
+        #    to itself is 0, so it does not disturb its own cluster's total.
+        one_hot = (labels[:, np.newaxis] == clusters[np.newaxis, :]).astype(float)
+        totals = dist_matrix @ one_hot
+        sizes = one_hot.sum(axis=0)
+        own = np.searchsorted(clusters, labels)
+        rows = np.arange(n)
 
-        for idx, obs_distances in enumerate(dist_matrix):
+        # 3. a = mean distance to the other points of its own cluster
+        a = totals[rows, own] / np.maximum(sizes[own] - 1, 1)
 
-            own_label = labels[idx]
+        # 4. b = mean distance to the nearest *other* cluster
+        mean_distances = totals / sizes
+        mean_distances[rows, own] = np.inf
+        b = mean_distances.min(axis=1)
 
-            # 2. Strip out the point itself from both the distances and the
-            #    labels.
-            other_distances = np.delete(obs_distances, idx)
-            other_labels = np.delete(labels, idx)
+        # 5. Silhouette per point; a point alone in its cluster scores 0
+        denominator = np.maximum(a, b)
+        s = np.divide(b - a, denominator, out=np.zeros(n), where=denominator > 0)
+        s[sizes[own] == 1] = 0.0
 
-            # 3. Mean distance from this point to every cluster
-            mean_distances = {
-                cluster: other_distances[other_labels == cluster].mean()
-                for cluster in clusters
-                if np.any(other_labels == cluster)
-            }
+        return float(np.mean(s))
 
-            # 4. a = mean distance to the other points of its own cluster.
-            #    If it is the only point in the cluster, set it to 0.
-            if own_label not in mean_distances:
-                s.append(0.0)
-                continue
-            a = mean_distances[own_label]
-
-            # 5. b = mean distance to the nearest *other* cluster
-            b = min(
-                mean for cluster, mean in mean_distances.items() if cluster != own_label
-            )
-
-            # 6. Silhouette for this point
-            s.append((b - a) / max(a, b))
-
-        return np.mean(s)
-
-    def fit(
-        self,
-        data: DolceSet,
-        k: int,
-        init_strategy: str = "kmeans++",
-        flavor: str = "kmeans",
-        max_iters: int = 100,
-        track_history: bool = False,
-    ):
-
-        if track_history:
-            self.centroids_history = []
-            self.assignments_history = []
+    def fit(self, data):
+        """Clusters ``data.X`` and returns the fitted model."""
 
         X = data.X
-        validate_k(k)
-        validate_init_strategy(init_strategy)
-        validate_flavor(flavor)
-        validate_max_iters(max_iters)
+        validate_X(X)
+        if self.k > X.shape[0]:
+            raise ValueError(
+                f"k ({self.k}) cannot be greater than the number of rows ({X.shape[0]})."
+            )
+
+        if self.track_history:
+            self.centroids_history = []
+            self.assignments_history = []
+        else:
+            self.centroids_history = None
+            self.assignments_history = None
+
+        k = self.k
+        flavor = self.flavor
 
         # 1. Distinguish K-means and K-medians cases
         if flavor == "kmeans":
             metric = "euclidean"
-        elif flavor == "kmedians":
+        else:
             metric = "manhattan"
 
         # 2. Initialize centroids based on strategy
-        if init_strategy == "random":
+        if self.init_strategy == "random":
             centroids = CentroidsInitializer().random(X, k)
-        elif init_strategy == "kmeans++":
+        else:
             centroids = CentroidsInitializer().kmeans_plus_plus(X, k, metric)
 
-        for i in range(max_iters):
+        for i in range(self.max_iters):
 
             # 2. Assign each data point to the nearest centroid
             dist_matrix = compute_distances_matrix(X, centroids, metric)
@@ -109,13 +163,13 @@ class KMeans:
                 new_centroids = np.array(
                     [X[min_dist_idxs == j].mean(axis=0) for j in range(k)]
                 )
-            elif flavor == "kmedians":
+            else:
                 new_centroids = np.array(
                     [np.median(X[min_dist_idxs == j], axis=0) for j in range(k)]
                 )
 
             # 5. Save centroids and assignments history if requested
-            if track_history:
+            if self.track_history:
                 self.centroids_history.append(new_centroids.copy())
                 self.assignments_history.append(min_dist_idxs.copy())
 
@@ -139,4 +193,7 @@ class KMeans:
         # (matches sklearn's inertia_). For kmedians the metric is Manhattan, so
         # this is the sum of squared L1 distances.
         self.wcss = np.sum(np.min(dist_matrix, axis=1) ** 2)
-        self.silhouette = self._compute_silhouette_score(X, min_dist_idxs)
+        self._X = X
+        self._silhouette = None
+        self.is_fitted = True
+        return self

@@ -1,27 +1,49 @@
+"""CART decision tree for classification and regression."""
+
 import numpy as np
 
-from dolcestat.metrics import ClassificationAnalyzer, RegressionAnalyzer
+from dolcestat.metrics import RegressionAnalyzer, classification_analyzer
 from dolcestat.trees.tree import Node
 
 from .input_validation import (
     validate_categorical_features,
+    validate_class_labels,
     validate_fit_algorithm,
-    validate_if_fitting_without_target,
-    validate_if_training_not_loaded,
     validate_impurity_measure,
+    validate_is_fitted,
     validate_max_depth,
     validate_min_samples_to_split,
-    validate_X,
-    validate_X_y,
-    validate_y,
+    validate_prediction_data,
+    validate_training_data,
 )
 
 
 class DecisionTree:
+    """A CART decision tree, for classification or regression.
+
+    Built from its settings alone; ``fit(data)`` grows the tree and returns it,
+    and ``predict(data)`` returns an analyzer.
+
+    Parameters
+    ----------
+    max_depth : int or None, default None
+        Maximum depth of the tree; None grows until the leaves are pure.
+    min_samples_to_split : int, default 2
+        Nodes with fewer rows than this become leaves.
+    fit_algorithm : {"cart"}, default "cart"
+    impurity_measure : {"gini", "entropy", "mse"}, default "gini"
+        Selects the task: "gini" / "entropy" for classification (the target
+        must hold the class labels 0..K-1, see DolceSet.encode_target), "mse"
+        for regression.
+    categorical_features : iterable of int, optional
+        Column indices of X to split on by category membership (``==``) instead
+        of by numeric threshold (``<=``). Values are still expected to be
+        numeric (e.g. label-encoded).
+    """
 
     def __init__(
         self,
-        data=None,
+        *,
         max_depth=None,
         min_samples_to_split=2,
         fit_algorithm="cart",
@@ -34,46 +56,27 @@ class DecisionTree:
         validate_min_samples_to_split(min_samples_to_split)
         validate_fit_algorithm(fit_algorithm)
         validate_impurity_measure(impurity_measure)
+        validate_categorical_features(categorical_features)
 
         # 2. Assign parameters
         self.max_depth = max_depth
         self.min_samples_to_split = min_samples_to_split
         self.fit_algorithm = fit_algorithm
         self.impurity_measure = impurity_measure
-        # Column indices of X to split on by category membership (==) instead
-        # of by numeric threshold (<=). Values are still expected to be
-        # numeric (e.g. label-encoded); range is validated once X is known.
         self.categorical_features = (
             set(categorical_features) if categorical_features is not None else set()
         )
 
-        # 3. Initialize tree
+        # 3. Initialize the fitted state
         self.tree = None
+        self.is_fitted = False
+        self.n_features = None
+        # For classification: the class labels 0..K-1 seen at fit time
+        self.classes_ = None
 
-        # 4. Training data is optional at construction. When omitted, the tree
-        #    must be populated later via load_training before fit.
-        self.can_train = False
-        self.is_training_loaded = False
-        if data is not None:
-            self.load_training(data)
-
-    def load_training(self, data):
-        # 1. Validate input data
-        validate_X(data.X)
-        if data.can_train:
-            validate_y(data.y)
-            validate_X_y(data.X, data.y)
-
-        # 2. Assign data-dependent attributes
-        self.can_train = data.can_train
-        self.X = data.X
-        if self.can_train:
-            self.y = data.y
-        self.n_samples = data.X.shape[0]
-        self.n_features = data.X.shape[1]
-        validate_categorical_features(self.categorical_features, self.n_features)
-
-        self.is_training_loaded = True
+    @property
+    def _is_classification(self):
+        return self.impurity_measure in ("gini", "entropy")
 
     def _compute_gini_impurity(self, y):
         # 1. Compute prob of each output class
@@ -103,6 +106,12 @@ class DecisionTree:
         else:
             raise ValueError(f"Unknown impurity measure: {self.impurity_measure}")
 
+    def _leaf_prediction(self, y, impurity_measure):
+        # Majority class for classification, mean target for regression
+        if impurity_measure in ["gini", "entropy"]:
+            return np.bincount(y).argmax()
+        return np.mean(y)
+
     def _cart_iterator(
         self,
         X,
@@ -115,7 +124,7 @@ class DecisionTree:
     ):
 
         # 1. Initialize a node
-        node = Node(X, y, depth)
+        node = Node(depth, n_samples=len(y))
 
         # 2. First check stopping criteria
         if (
@@ -124,10 +133,7 @@ class DecisionTree:
             or len(set(y)) == 1
         ):
             node.is_leaf = True
-            if impurity_measure in ["gini", "entropy"]:
-                node.prediction = np.bincount(y).argmax()
-            else:
-                node.prediction = np.mean(y)
+            node.prediction = self._leaf_prediction(y, impurity_measure)
             return node
 
         # 3. Find best split
@@ -178,10 +184,7 @@ class DecisionTree:
         # 4. Second check stopping criteria
         if best_feature is None:  # no useful split found
             node.is_leaf = True
-            if impurity_measure in ["gini", "entropy"]:
-                node.prediction = np.bincount(y).argmax()
-            else:
-                node.prediction = np.mean(y)
+            node.prediction = self._leaf_prediction(y, impurity_measure)
             return node
 
         # 5. Else, iterate on next node
@@ -217,22 +220,34 @@ class DecisionTree:
 
         return node
 
-    def fit(self):
-
-        validate_if_training_not_loaded(self.is_training_loaded)
-        validate_if_fitting_without_target(self.can_train)
-
+    def _fit_xy(self, X, y):
+        # Grows the tree on raw arrays. Shared by fit() and by the ensembles,
+        # which build many trees on arrays they already validated.
+        self.n_features = X.shape[1]
         match self.fit_algorithm:
             case "cart":
                 self.tree = self._cart_iterator(
-                    self.X,
-                    self.y,
+                    X,
+                    y,
                     depth=0,
                     max_depth=self.max_depth,
                     min_samples_to_split=self.min_samples_to_split,
                     impurity_measure=self.impurity_measure,
                     categorical_features=self.categorical_features,
                 )
+        self.is_fitted = True
+        return self
+
+    def fit(self, data):
+        """Grows the tree on ``data`` (a DolceSet with a target); returns self."""
+        validate_training_data(data)
+        validate_categorical_features(self.categorical_features, data.X.shape[1])
+
+        y = data.y
+        if self._is_classification:
+            self.classes_ = np.arange(validate_class_labels(y))
+            y = y.astype(int)
+        return self._fit_xy(data.X, y)
 
     def _traverse(self, row, node):
         if node.is_leaf:
@@ -245,8 +260,19 @@ class DecisionTree:
             return self._traverse(row, node.left)
         return self._traverse(row, node.right)
 
+    def _predict_values(self, X):
+        return np.array([self._traverse(row, self.tree) for row in X])
+
     def predict(self, data):
-        preds = np.array([self._traverse(row, self.tree) for row in data.X])
-        if self.impurity_measure == "mse":
-            return RegressionAnalyzer(data.y, preds)
-        return ClassificationAnalyzer(data.y, preds)
+        """Predictions for ``data`` (no target needed), wrapped in an analyzer.
+
+        Regression returns a RegressionAnalyzer; classification returns the
+        binary or the multiclass analyzer according to the number of classes
+        seen at fit time.
+        """
+        validate_is_fitted(self.is_fitted, "DecisionTree")
+        validate_prediction_data(data, self.n_features)
+        preds = self._predict_values(data.X)
+        if self._is_classification:
+            return classification_analyzer(data.y, preds, len(self.classes_))
+        return RegressionAnalyzer(data.y, preds)

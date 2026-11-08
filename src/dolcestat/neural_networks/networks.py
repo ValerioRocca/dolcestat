@@ -4,6 +4,11 @@ from abc import ABC, abstractmethod
 
 import numpy as np
 
+from dolcestat._validation import (
+    validate_is_fitted,
+    validate_prediction_data,
+    validate_training_data,
+)
 from dolcestat.neural_networks.input_validation import (
     validate_n_epochs,
     validate_tol,
@@ -27,6 +32,10 @@ class NeuralNetwork(ABC):
     #: Per-epoch training loss of the last ``fit(track_history=True)`` run.
     #: None until such a run happens. See ``get_loss``.
     loss = None
+
+    #: The Loss the network was last fitted with; ``predict`` asks it for the
+    #: analyzer that fits the task. None until ``fit`` is called.
+    _fitted_loss = None
 
     @abstractmethod
     def forward(self, X: np.ndarray, training: bool = True) -> np.ndarray:
@@ -87,8 +96,11 @@ class NeuralNetwork(ABC):
         Returns:
             self
         """
+        validate_training_data(data)
         validate_n_epochs(n_epochs)
         validate_tol(tol)
+        self._fitted_loss = loss
+        self.n_features = data.X.shape[1]
 
         # F1. Resolve the strategy defaults here rather than in the signature.
         #     A default argument is evaluated once, at import, so every network
@@ -206,18 +218,27 @@ class NeuralNetwork(ABC):
             return self.loss[iteration]
         return self.loss
 
-    def predict(self, X: np.ndarray):
+    def predict(self, data: DolceSet):
         """
-        Computes the model's predictions for ``X``.
+        Computes the model's predictions for ``data``.
+
+        The analyzer returned is the one the loss used in ``fit`` calls for:
+        a RegressionAnalyzer for ``MeanSquaredError``, a ClassificationAnalyzer
+        (``y_fit`` holds the class-1 probabilities) for ``BinaryCrossEntropy``,
+        a GaussianRegressionAnalyzer (``y_fit`` is mu, ``variance`` is
+        sigma^2) for ``GaussianNegativeLogLikelihood``. ``data`` needs no
+        target. For the raw output arrays call ``forward(X, training=False)``.
 
         Args:
-            X: input features (numpy array)
+            data: input features (DolceSet)
 
         Returns:
-            The network's output with ``training=False`` -- a single array for a
-            chain, one array per head for a MultiHead.
+            An analyzer over the network's output.
         """
-        return self.forward(X, training=False)
+        validate_is_fitted(self._fitted_loss is not None, type(self).__name__)
+        validate_prediction_data(data, self.n_features)
+        output = self.forward(data.X, training=False)
+        return self._fitted_loss.analyzer(data.y, output)
 
 
 class Sequential(NeuralNetwork):
@@ -311,7 +332,9 @@ class MultiHead(NeuralNetwork):
         DenseLayer(LU(), 8, 1),                     # mean head     -> mu
         DenseLayer(Softplus(), 8, 1),               # variance head -> sigma^2
     )
-    mu, var = net.predict(X)
+    net.fit(train, GaussianNegativeLogLikelihood())
+    mu, var = net.forward(X, training=False)       # raw arrays, one per head
+    analyzer = net.predict(test)                   # GaussianRegressionAnalyzer
     ```
 
     Widths. Every head consumes the *same* trunk output, so every head's first

@@ -1,8 +1,10 @@
+"""Agglomerative hierarchical clustering with a dendrogram plot."""
+
 import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
 
-from dolcestat.clustering.input_validation import validate_linkage
+from dolcestat.clustering.input_validation import validate_linkage, validate_X
 from dolcestat.clustering.linkage import apply_lance_williams_formula
 from dolcestat.neighbors.distances import compute_distances_matrix
 from dolcestat.preprocessing import DolceSet
@@ -54,15 +56,22 @@ class HierarchicalClustering:
     advance.
     """
 
-    def __init__(self):
+    def __init__(self, linkage: str = "ward"):
+        """
+        Parameters
+        ----------
+        linkage : str, default "ward"
+            How the distance between two clusters is derived from the
+            distances between their members. One of "single" (closest pair),
+            "complete" (farthest pair), "average" (mean over all pairs) or
+            "ward" (merge that increases the within-cluster variance least).
+        """
+        validate_linkage(linkage)
+        self.linkage = linkage
         self.is_fitted = False
+        self.clusters = None
 
-    def fit(
-        self,
-        data: DolceSet,
-        linkage: str = "ward",
-        track_history: bool = False,
-    ):
+    def fit(self, data: DolceSet):
         """Build the dendrogram by repeatedly merging the two closest clusters.
 
         Parameters
@@ -70,24 +79,19 @@ class HierarchicalClustering:
         data : DolceSet
             Dataset to cluster. Only ``data.X`` is used; the target, if any,
             is ignored.
-        linkage : str, default "ward"
-            How the distance between two clusters is derived from the
-            distances between their members. One of "single" (closest pair),
-            "complete" (farthest pair), "average" (mean over all pairs) or
-            "ward" (merge that increases the within-cluster variance least).
-        track_history : bool, default False
-            Whether to record the intermediate state of each merge.
 
         Returns
         -------
-        list of Cluster
-            The nodes of the dendrogram, leaves first and in merge order, so
+        HierarchicalClustering
+            The fitted model. Its ``clusters`` attribute holds the nodes of the
+            dendrogram (:class:`Cluster`), leaves first and in merge order, so
             the last element is the root spanning every observation.
         """
 
         X = data.X
+        validate_X(X)
+        linkage = self.linkage
         clusters = []
-        validate_linkage(linkage)
 
         # 1. Compute linkage matrix
         linkage_matrix = compute_distances_matrix(X, X, metric="euclidean")
@@ -192,14 +196,16 @@ class HierarchicalClustering:
 
         self.clusters = clusters
         self.is_fitted = True
+        return self
 
     def plot_dendrogram(self, ax=None):
         """Draw the dendrogram with seaborn/matplotlib.
 
-        Leaves are placed left to right in the order they first appear as a
-        member of a merge (equivalent to scipy's default leaf ordering), and
-        every merge is drawn as a bracket connecting its two children at the
-        midpoint of their x-positions, rising to the merge's height.
+        Leaves are placed left to right by walking the tree down from the root,
+        left child first, so that every cluster occupies a contiguous stretch
+        and no branches cross. Every merge is drawn as a bracket connecting its
+        two children at the midpoint of their x-positions, rising to the
+        merge's height.
 
         Parameters
         ----------
@@ -217,26 +223,44 @@ class HierarchicalClustering:
         clusters = self.clusters
         n_leaves = sum(1 for c in clusters if len(c.members_ids) == 1)
 
-        # 1. Assign each leaf an x-position by first appearance in the merge
-        #    order, then work out every cluster's x as the midpoint of its
-        #    two children (leaves have no children and keep their own x).
-        leaf_order = [c.members_ids[0] for c in clusters[:n_leaves]]
-        x_of_member = {member_id: x for x, member_id in enumerate(leaf_order)}
-
-        # Each merge in clusters[n_leaves:] consumes exactly the two most
-        # recent still-unconsumed clusters that its members_ids contains, in
-        # the same order the fit() loop built them -- so replaying merges
-        # against a "roots so far" pool recovers each cluster's children in
-        # O(1) amortized, no subset search needed.
+        # 1. Recover each merge's two children. Each merge in
+        #    clusters[n_leaves:] consumes exactly the two most recent
+        #    still-unconsumed clusters that its members_ids contains, in the
+        #    same order the fit() loop built them -- so replaying merges against
+        #    a "roots so far" pool finds the children in O(1) amortized, no
+        #    subset search needed. members_ids is the left child's members
+        #    followed by the right child's.
         roots_by_member = {
             cluster.members_ids[0]: cluster for cluster in clusters[:n_leaves]
         }
+        children = {}
+        for cluster in clusters[n_leaves:]:
+            children[id(cluster)] = (
+                roots_by_member[cluster.members_ids[0]],
+                roots_by_member[cluster.members_ids[-1]],
+            )
+            for member_id in cluster.members_ids:
+                roots_by_member[member_id] = cluster
+
+        # 2. Order the leaves by walking down from the root, left child first,
+        #    then work out every cluster's x as the midpoint of its two
+        #    children (leaves have no children and keep their own x).
+        leaf_order = []
+        stack = [clusters[-1]]
+        while stack:
+            node = stack.pop()
+            if id(node) in children:
+                left, right = children[id(node)]
+                stack.append(right)
+                stack.append(left)
+            else:
+                leaf_order.append(node.members_ids[0])
+        x_of_member = {member_id: x for x, member_id in enumerate(leaf_order)}
 
         x_position = {id(c): x_of_member[c.members_ids[0]] for c in clusters[:n_leaves]}
         segments = []
         for cluster in clusters[n_leaves:]:
-            left = roots_by_member[cluster.members_ids[0]]
-            right = roots_by_member[cluster.members_ids[-1]]
+            left, right = children[id(cluster)]
 
             x_left, x_right = x_position[id(left)], x_position[id(right)]
             x_mid = (x_left + x_right) / 2
@@ -246,10 +270,7 @@ class HierarchicalClustering:
             segments.append(([x_right, x_right], [right.height, cluster.height]))
             segments.append(([x_left, x_right], [cluster.height, cluster.height]))
 
-            for member_id in cluster.members_ids:
-                roots_by_member[member_id] = cluster
-
-        # 2. Draw
+        # 3. Draw
         if ax is None:
             with sns.axes_style("whitegrid"):
                 _, ax = plt.subplots()

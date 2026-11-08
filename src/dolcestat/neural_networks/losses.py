@@ -4,6 +4,13 @@ from abc import ABC, abstractmethod
 
 import numpy as np
 
+from dolcestat._validation import validate_binary_target
+from dolcestat.metrics import (
+    ClassificationAnalyzer,
+    GaussianRegressionAnalyzer,
+    RegressionAnalyzer,
+)
+
 
 def validate_matching_shapes(y_pred: np.ndarray, y_true: np.ndarray) -> None:
     """
@@ -59,6 +66,24 @@ class Loss(ABC):
             network's backward expects.
         """
 
+    def analyzer(self, y_true, y_pred):
+        """
+        The analyzer that fits the task this loss defines. ``NeuralNetwork.predict``
+        calls it, so a network's predictions are read with the same metrics as
+        every other model's.
+
+        Args:
+            y_true: true values, or None for data without a target
+            y_pred: the network's output, as ``forward`` returns it
+
+        Returns:
+            A PredictionAnalyzer over the output
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} does not say which analyzer fits its "
+            "output. Override analyzer(), or call the network's forward()."
+        )
+
 
 class MeanSquaredError(Loss):
     """
@@ -103,6 +128,10 @@ class MeanSquaredError(Loss):
         """
         n = self.y_true.shape[0]
         return 2 * (self.y_pred - self.y_true) / n
+
+    def analyzer(self, y_true, y_pred):
+        """A RegressionAnalyzer over the (single) output column."""
+        return RegressionAnalyzer(y_true, y_pred.ravel())
 
 
 class GaussianNegativeLogLikelihood(Loss):
@@ -244,6 +273,11 @@ class GaussianNegativeLogLikelihood(Loss):
 
         return d_mu, d_var
 
+    def analyzer(self, y_true, y_pred):
+        """A GaussianRegressionAnalyzer over the ``(mu, sigma^2)`` pair."""
+        mu, var = y_pred
+        return GaussianRegressionAnalyzer(y_true, mu.ravel(), var.ravel())
+
 
 class BinaryCrossEntropy(Loss):
     """
@@ -291,8 +325,11 @@ class BinaryCrossEntropy(Loss):
             Scalar loss value
         """
 
-        # 1. Predictions and targets must already line up (fit guarantees it).
+        # 1. Predictions and targets must already line up (fit guarantees it),
+        #    and the targets must be 0/1: any other value is not a class this
+        #    loss can score, and training would quietly produce nonsense.
         validate_matching_shapes(y_pred, y_true)
+        validate_binary_target(y_true, "BinaryCrossEntropy")
 
         # 2. Cache the arrays exactly as handed in, so backward divides by the
         #    same y_pred the upstream activation will multiply back. Skipped for
@@ -316,3 +353,7 @@ class BinaryCrossEntropy(Loss):
         """
         n = self.y_true.shape[0]
         return (self.y_pred - self.y_true) / (self.y_pred * (1 - self.y_pred) * n)
+
+    def analyzer(self, y_true, y_pred):
+        """A binary ClassificationAnalyzer; ``y_fit`` holds the probabilities."""
+        return ClassificationAnalyzer(y_true, y_pred.ravel())
